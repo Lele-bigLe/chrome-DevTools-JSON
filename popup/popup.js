@@ -1,32 +1,92 @@
 /**
- * JSON 数据结构提取器 - 增强版
- * 支持大数据、深层嵌套、多种输出格式
+ * JSON 数据结构提取器 - 完整增强版
+ * 功能：结构提取、TypeScript类型、对比、URL获取、历史记录、主题切换
  */
 
-// DOM 元素
+// ==================== DOM 元素 ====================
+const $ = id => document.getElementById(id)
 const elements = {
-  jsonInput: document.getElementById('jsonInput'),
-  output: document.getElementById('output'),
-  extractBtn: document.getElementById('extractBtn'),
-  copyBtn: document.getElementById('copyBtn'),
-  pasteBtn: document.getElementById('pasteBtn'),
-  clearBtn: document.getElementById('clearBtn'),
-  settingsBtn: document.getElementById('settingsBtn'),
-  optionsPanel: document.getElementById('optionsPanel'),
-  showArrayLength: document.getElementById('showArrayLength'),
-  showSampleValue: document.getElementById('showSampleValue'),
-  keysOnly: document.getElementById('keysOnly'),
-  compactMode: document.getElementById('compactMode'),
-  maxDepth: document.getElementById('maxDepth'),
-  toast: document.getElementById('toast'),
-  status: document.getElementById('status'),
-  inputStats: document.getElementById('inputStats'),
-  outputStats: document.getElementById('outputStats')
+  // 基础元素
+  jsonInput: $('jsonInput'),
+  output: $('output'),
+  toast: $('toast'),
+  status: $('status'),
+  inputStats: $('inputStats'),
+  outputStats: $('outputStats'),
+
+  // 按钮
+  extractBtn: $('extractBtn'),
+  copyBtn: $('copyBtn'),
+  pasteBtn: $('pasteBtn'),
+  clearBtn: $('clearBtn'),
+  formatBtn: $('formatBtn'),
+  settingsBtn: $('settingsBtn'),
+  themeBtn: $('themeBtn'),
+  historyBtn: $('historyBtn'),
+  compareBtn: $('compareBtn'),
+  fetchBtn: $('fetchBtn'),
+  clearHistoryBtn: $('clearHistoryBtn'),
+
+  // 面板
+  optionsPanel: $('optionsPanel'),
+  historyPanel: $('historyPanel'),
+  historyList: $('historyList'),
+
+  // 选项
+  showArrayLength: $('showArrayLength'),
+  showSampleValue: $('showSampleValue'),
+  keysOnly: $('keysOnly'),
+  compactMode: $('compactMode'),
+  maxDepth: $('maxDepth'),
+  outputFormat: $('outputFormat'),
+
+  // 对比模式
+  compareInputA: $('compareInputA'),
+  compareInputB: $('compareInputB'),
+  compareOutput: $('compareOutput'),
+
+  // URL 获取
+  urlInput: $('urlInput'),
+  fetchOutput: $('fetchOutput'),
+  fetchStats: $('fetchStats'),
+
+  // 选项卡和面板
+  app: document.querySelector('.app')
 }
 
-// 存储原始结构数据
+// ==================== 状态管理 ====================
 let structureResult = null
-let processStartTime = 0
+let currentTab = 'extract'
+const HISTORY_KEY = 'json_structure_history'
+const THEME_KEY = 'json_structure_theme'
+const MAX_HISTORY = 20
+
+// ==================== 工具函数 ====================
+
+/**
+ * HTML 转义
+ */
+function escapeHtml(str) {
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
+}
+
+/**
+ * 显示 Toast 提示
+ */
+function showToast(message, type = 'success') {
+  elements.toast.textContent = message
+  elements.toast.className = `toast ${type} show`
+  setTimeout(() => { elements.toast.className = 'toast' }, 2000)
+}
+
+/**
+ * 更新状态栏
+ */
+function updateStatus(text) {
+  elements.status.textContent = text
+}
 
 /**
  * 获取当前配置选项
@@ -37,39 +97,50 @@ function getOptions() {
     showSample: elements.showSampleValue.checked,
     keysOnly: elements.keysOnly.checked,
     compact: elements.compactMode.checked,
-    maxDepth: parseInt(elements.maxDepth.value) || 0
+    maxDepth: parseInt(elements.maxDepth.value) || 0,
+    format: elements.outputFormat.value
   }
 }
 
 /**
- * 提取数据结构（增强版）
- * @param {any} data - 输入数据
- * @param {object} options - 配置选项
- * @param {number} depth - 当前深度
- * @param {WeakSet} seen - 已访问对象（循环引用检测）
- * @returns {any} 数据结构描述
+ * 统计 JSON 信息
+ */
+function getJsonStats(data) {
+  let count = { keys: 0, depth: 0 }
+  function traverse(obj, depth = 0) {
+    if (depth > count.depth) count.depth = depth
+    if (Array.isArray(obj)) {
+      obj.forEach(item => traverse(item, depth + 1))
+    } else if (obj && typeof obj === 'object') {
+      const keys = Object.keys(obj)
+      count.keys += keys.length
+      keys.forEach(key => traverse(obj[key], depth + 1))
+    }
+  }
+  traverse(data)
+  return count
+}
+
+// ==================== 核心功能：结构提取 ====================
+
+/**
+ * 提取数据结构
  */
 function extractStructure(data, options = {}, depth = 0, seen = new WeakSet()) {
   const { showLength = true, showSample = false, keysOnly = false, maxDepth = 0 } = options
 
-  // 深度限制检查
-  if (maxDepth > 0 && depth >= maxDepth) {
-    return '...'
-  }
-
-  // null 类型
-  if (data === null) {
-    return keysOnly ? null : (showSample ? 'null' : 'null')
-  }
-
-  // undefined 类型
-  if (data === undefined) {
-    return keysOnly ? null : 'undefined'
-  }
+  // 深度限制
+  if (maxDepth > 0 && depth >= maxDepth) return '...'
+  
+  // null
+  if (data === null) return keysOnly ? null : 'null'
+  
+  // undefined
+  if (data === undefined) return keysOnly ? null : 'undefined'
 
   const type = typeof data
 
-  // 基础类型处理
+  // 基础类型
   if (type === 'string') {
     if (keysOnly) return null
     if (showSample) {
@@ -91,40 +162,28 @@ function extractStructure(data, options = {}, depth = 0, seen = new WeakSet()) {
 
   // 循环引用检测
   if (type === 'object') {
-    if (seen.has(data)) {
-      return '[Circular Reference]'
-    }
+    if (seen.has(data)) return '[Circular]'
     seen.add(data)
   }
 
-  // 数组类型处理
+  // 数组
   if (Array.isArray(data)) {
-    if (data.length === 0) {
-      return keysOnly ? '[]' : (showLength ? 'array[0]' : 'array[]')
-    }
+    if (data.length === 0) return keysOnly ? '[]' : (showLength ? 'array[0]' : 'array[]')
 
     const lengthInfo = showLength ? `[${data.length}]` : ''
     const firstItem = extractStructure(data[0], options, depth + 1, seen)
 
-    // 如果数组元素是基础类型
     if (typeof data[0] !== 'object' || data[0] === null) {
-      if (keysOnly) return `array${lengthInfo}`
-      return `array${lengthInfo}<${firstItem}>`
+      return keysOnly ? `array${lengthInfo}` : `array${lengthInfo}<${firstItem}>`
     }
 
-    // 数组元素是对象
-    return {
-      __type__: `array${lengthInfo}`,
-      __items__: firstItem
-    }
+    return { __type__: `array${lengthInfo}`, __items__: firstItem }
   }
 
-  // 对象类型处理
+  // 对象
   if (type === 'object') {
     const keys = Object.keys(data)
-    if (keys.length === 0) {
-      return {}
-    }
+    if (keys.length === 0) return {}
 
     const result = {}
     for (const key of keys) {
@@ -136,48 +195,231 @@ function extractStructure(data, options = {}, depth = 0, seen = new WeakSet()) {
   return keysOnly ? null : type
 }
 
+// ==================== 核心功能：TypeScript 类型生成 ====================
+
 /**
- * 格式化输出（带语法高亮）
- * @param {any} structure - 数据结构
- * @param {number} indent - 缩进级别
- * @param {boolean} compact - 紧凑模式
- * @returns {string} 格式化的 HTML 字符串
+ * 生成 TypeScript 类型定义
+ */
+function generateTypeScript(data, name = 'Root', indent = 0) {
+  const spaces = '  '.repeat(indent)
+  const type = typeof data
+
+  // null/undefined
+  if (data === null) return 'null'
+  if (data === undefined) return 'undefined'
+
+  // 基础类型
+  if (type === 'string') return 'string'
+  if (type === 'number') return 'number'
+  if (type === 'boolean') return 'boolean'
+
+  // 数组
+  if (Array.isArray(data)) {
+    if (data.length === 0) return 'any[]'
+    const itemType = generateTypeScript(data[0], name + 'Item', indent)
+    
+    // 如果数组元素是复杂对象，生成内联接口
+    if (typeof data[0] === 'object' && data[0] !== null && !Array.isArray(data[0])) {
+      return `Array<{\n${generateObjectFields(data[0], indent + 1)}\n${spaces}}>`
+    }
+    return `${itemType}[]`
+  }
+
+  // 对象
+  if (type === 'object') {
+    return `{\n${generateObjectFields(data, indent + 1)}\n${spaces}}`
+  }
+
+  return 'any'
+}
+
+/**
+ * 生成对象字段
+ */
+function generateObjectFields(obj, indent = 0) {
+  const spaces = '  '.repeat(indent)
+  const lines = []
+
+  for (const key of Object.keys(obj)) {
+    const value = obj[key]
+    const fieldType = generateTypeScript(value, capitalize(key), indent)
+    // 判断是否需要引号
+    const safeKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`
+    lines.push(`${spaces}${safeKey}: ${fieldType};`)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * 首字母大写
+ */
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+/**
+ * 格式化 TypeScript 输出（带语法高亮）
+ */
+function formatTypeScript(data, interfaceName = 'IResponse') {
+  const content = generateTypeScript(data, interfaceName, 0)
+  
+  // 如果是简单类型，直接返回
+  if (!content.startsWith('{') && !content.startsWith('Array')) {
+    return `<span class="ts-keyword">type</span> <span class="ts-interface">${interfaceName}</span> = <span class="ts-type">${content}</span>;`
+  }
+
+  // 生成接口定义
+  let result = `<span class="ts-keyword">interface</span> <span class="ts-interface">${interfaceName}</span> `
+  result += highlightTypeScript(content)
+  
+  return result
+}
+
+/**
+ * TypeScript 语法高亮
+ */
+function highlightTypeScript(code) {
+  return code
+    .replace(/\b(string|number|boolean|null|undefined|any)\b/g, '<span class="ts-type">$1</span>')
+    .replace(/\bArray</g, '<span class="ts-type">Array</span><')
+}
+
+// ==================== 核心功能：结构对比 ====================
+
+/**
+ * 对比两个 JSON 的结构差异
+ */
+function compareStructures(a, b, path = '') {
+  const result = { same: [], added: [], removed: [] }
+
+  const typeA = getType(a)
+  const typeB = getType(b)
+
+  // 类型不同
+  if (typeA !== typeB) {
+    result.removed.push({ path: path || 'root', type: typeA })
+    result.added.push({ path: path || 'root', type: typeB })
+    return result
+  }
+
+  // 都是对象
+  if (typeA === 'object') {
+    const keysA = Object.keys(a || {})
+    const keysB = Object.keys(b || {})
+    const allKeys = [...new Set([...keysA, ...keysB])]
+
+    for (const key of allKeys) {
+      const newPath = path ? `${path}.${key}` : key
+      
+      if (!(key in a)) {
+        result.added.push({ path: newPath, type: getType(b[key]) })
+      } else if (!(key in b)) {
+        result.removed.push({ path: newPath, type: getType(a[key]) })
+      } else {
+        const sub = compareStructures(a[key], b[key], newPath)
+        result.same.push(...sub.same)
+        result.added.push(...sub.added)
+        result.removed.push(...sub.removed)
+      }
+    }
+
+    if (result.added.length === 0 && result.removed.length === 0 && keysA.length > 0) {
+      result.same.push({ path: path || 'root', type: 'object' })
+    }
+  }
+  // 都是数组
+  else if (typeA === 'array') {
+    if (a.length > 0 && b.length > 0) {
+      const sub = compareStructures(a[0], b[0], path + '[0]')
+      result.same.push(...sub.same)
+      result.added.push(...sub.added)
+      result.removed.push(...sub.removed)
+    }
+    if (result.added.length === 0 && result.removed.length === 0) {
+      result.same.push({ path: path || 'root', type: 'array' })
+    }
+  }
+  // 基础类型相同
+  else {
+    result.same.push({ path: path || 'root', type: typeA })
+  }
+
+  return result
+}
+
+/**
+ * 获取值的类型
+ */
+function getType(value) {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  return typeof value
+}
+
+/**
+ * 格式化对比结果
+ */
+function formatCompareResult(result) {
+  let output = ''
+
+  if (result.added.length > 0) {
+    output += '<span class="diff-add">+ 新增字段：</span>\n'
+    result.added.forEach(item => {
+      output += `<span class="diff-add">  + ${item.path}: ${item.type}</span>\n`
+    })
+    output += '\n'
+  }
+
+  if (result.removed.length > 0) {
+    output += '<span class="diff-remove">- 移除字段：</span>\n'
+    result.removed.forEach(item => {
+      output += `<span class="diff-remove">  - ${item.path}: ${item.type}</span>\n`
+    })
+    output += '\n'
+  }
+
+  if (result.added.length === 0 && result.removed.length === 0) {
+    output = '<span class="diff-same">✓ 两个 JSON 的结构完全相同</span>'
+  } else {
+    output += `<span class="diff-same">相同字段: ${result.same.length} 个</span>`
+  }
+
+  return output
+}
+
+// ==================== 格式化输出 ====================
+
+/**
+ * 格式化结构输出（带语法高亮）
  */
 function formatOutput(structure, indent = 0, compact = false) {
   const spaces = compact ? '' : '  '.repeat(indent)
   const newline = compact ? '' : '\n'
 
-  // 字符串类型标记
   if (typeof structure === 'string') {
     let typeClass = 'type-string'
     if (structure.startsWith('number')) typeClass = 'type-number'
     else if (structure.startsWith('boolean')) typeClass = 'type-boolean'
     else if (structure === 'null' || structure.startsWith('null')) typeClass = 'type-null'
     else if (structure.startsWith('array') || structure === '...') typeClass = 'type-array'
-    else if (structure === '[Circular Reference]') typeClass = 'type-null'
-
+    else if (structure === '[Circular]') typeClass = 'type-null'
     return `<span class="${typeClass}">${escapeHtml(structure)}</span>`
   }
 
-  // null/undefined
   if (structure === null || structure === undefined) {
     return `<span class="type-null">null</span>`
   }
 
-  // 对象/数组结构处理
   if (typeof structure === 'object') {
-    // 带类型标记的数组
     if (structure.__type__ && structure.__items__ !== undefined) {
       const typeLabel = `<span class="type-array">${escapeHtml(structure.__type__)}</span>`
       const items = formatOutput(structure.__items__, indent, compact)
       return `${typeLabel} ${items}`
     }
 
-    // 普通对象
     const keys = Object.keys(structure)
-    if (keys.length === 0) {
-      return '<span class="bracket">{}</span>'
-    }
+    if (keys.length === 0) return '<span class="bracket">{}</span>'
 
     let result = `<span class="bracket">{</span>${newline}`
     keys.forEach((key, index) => {
@@ -187,7 +429,6 @@ function formatOutput(structure, indent = 0, compact = false) {
       result += `${lineSpaces}<span class="key">"${escapeHtml(key)}"</span>: ${value}${comma}${newline}`
     })
     result += `${spaces}<span class="bracket">}</span>`
-
     return result
   }
 
@@ -195,55 +436,30 @@ function formatOutput(structure, indent = 0, compact = false) {
 }
 
 /**
- * HTML 转义
- */
-function escapeHtml(str) {
-  const div = document.createElement('div')
-  div.textContent = str
-  return div.innerHTML
-}
-
-/**
  * 将结构转为纯文本
- * @param {any} structure - 数据结构
- * @param {number} indent - 缩进级别
- * @param {boolean} compact - 紧凑模式
- * @returns {string} 纯文本字符串
  */
 function structureToText(structure, indent = 0, compact = false) {
   const spaces = compact ? '' : '  '.repeat(indent)
   const newline = compact ? '' : '\n'
 
-  if (typeof structure === 'string') {
-    return structure
-  }
-
-  if (structure === null || structure === undefined) {
-    return 'null'
-  }
+  if (typeof structure === 'string') return structure
+  if (structure === null || structure === undefined) return 'null'
 
   if (typeof structure === 'object') {
-    // 带类型标记的数组
     if (structure.__type__ && structure.__items__ !== undefined) {
-      const items = structureToText(structure.__items__, indent, compact)
-      return `${structure.__type__} ${items}`
+      return `${structure.__type__} ${structureToText(structure.__items__, indent, compact)}`
     }
 
-    // 普通对象
     const keys = Object.keys(structure)
-    if (keys.length === 0) {
-      return '{}'
-    }
+    if (keys.length === 0) return '{}'
 
     let result = `{${newline}`
     keys.forEach((key, index) => {
       const value = structureToText(structure[key], indent + 1, compact)
       const comma = index < keys.length - 1 ? ',' : ''
-      const lineSpaces = compact ? '' : '  '.repeat(indent + 1)
-      result += `${lineSpaces}"${key}": ${value}${comma}${newline}`
+      result += `${compact ? '' : '  '.repeat(indent + 1)}"${key}": ${value}${comma}${newline}`
     })
     result += `${spaces}}`
-
     return result
   }
 
@@ -251,82 +467,148 @@ function structureToText(structure, indent = 0, compact = false) {
 }
 
 /**
- * 显示 Toast 提示
+ * TypeScript 转纯文本
  */
-function showToast(message, type = 'success') {
-  elements.toast.textContent = message
-  elements.toast.className = `toast ${type} show`
-
-  setTimeout(() => {
-    elements.toast.className = 'toast'
-  }, 2000)
-}
-
-/**
- * 更新状态
- */
-function updateStatus(text) {
-  elements.status.textContent = text
-}
-
-/**
- * 统计 JSON 信息
- */
-function getJsonStats(data) {
-  let count = { keys: 0, depth: 0 }
-
-  function traverse(obj, depth = 0) {
-    if (depth > count.depth) count.depth = depth
-
-    if (Array.isArray(obj)) {
-      obj.forEach(item => traverse(item, depth + 1))
-    } else if (obj && typeof obj === 'object') {
-      const keys = Object.keys(obj)
-      count.keys += keys.length
-      keys.forEach(key => traverse(obj[key], depth + 1))
-    }
+function typeScriptToText(data, interfaceName = 'IResponse') {
+  const content = generateTypeScript(data, interfaceName, 0)
+  
+  if (!content.startsWith('{') && !content.startsWith('Array')) {
+    return `type ${interfaceName} = ${content};`
   }
 
-  traverse(data)
-  return count
+  return `interface ${interfaceName} ${content}`
+}
+
+// ==================== 历史记录 ====================
+
+/**
+ * 保存到历史记录
+ */
+function saveToHistory(input, output) {
+  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  const item = {
+    id: Date.now(),
+    input: input.slice(0, 500),
+    output: output.slice(0, 500),
+    time: new Date().toLocaleString()
+  }
+  
+  history.unshift(item)
+  if (history.length > MAX_HISTORY) history.pop()
+  
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  renderHistory()
 }
 
 /**
- * 提取按钮点击事件
+ * 渲染历史记录
  */
+function renderHistory() {
+  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  
+  if (history.length === 0) {
+    elements.historyList.innerHTML = '<div class="history-empty">暂无历史记录</div>'
+    return
+  }
+
+  elements.historyList.innerHTML = history.map(item => `
+    <div class="history-item" data-id="${item.id}">
+      <div class="history-item-title">${escapeHtml(item.input.slice(0, 50))}...</div>
+      <div class="history-item-time">${item.time}</div>
+    </div>
+  `).join('')
+}
+
+/**
+ * 加载历史记录项
+ */
+function loadHistoryItem(id) {
+  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  const item = history.find(h => h.id === parseInt(id))
+  
+  if (item) {
+    elements.jsonInput.value = item.input
+    elements.historyPanel.classList.remove('show')
+    showToast('已加载历史记录')
+  }
+}
+
+// ==================== 主题切换 ====================
+
+/**
+ * 切换主题
+ */
+function toggleTheme() {
+  const current = elements.app.dataset.theme
+  const next = current === 'dark' ? 'light' : 'dark'
+  elements.app.dataset.theme = next
+  localStorage.setItem(THEME_KEY, next)
+}
+
+/**
+ * 初始化主题
+ */
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY) || 'dark'
+  elements.app.dataset.theme = saved
+}
+
+// ==================== 选项卡切换 ====================
+
+/**
+ * 切换选项卡
+ */
+function switchTab(tabName) {
+  currentTab = tabName
+  
+  // 更新选项卡激活状态
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === tabName)
+  })
+
+  // 更新面板显示
+  document.querySelectorAll('.pane').forEach(pane => {
+    pane.classList.toggle('active', pane.id === tabName + 'Pane')
+  })
+}
+
+// ==================== 事件绑定 ====================
+
+// 提取按钮
 elements.extractBtn.addEventListener('click', () => {
   const inputText = elements.jsonInput.value.trim()
-
   if (!inputText) {
     showToast('请先粘贴 JSON 数据', 'error')
     return
   }
 
-  processStartTime = performance.now()
+  const startTime = performance.now()
   updateStatus('处理中...')
 
   try {
     const jsonData = JSON.parse(inputText)
     const options = getOptions()
-
-    // 获取统计信息
     const stats = getJsonStats(jsonData)
-    elements.inputStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层深度`
+    elements.inputStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层`
 
-    // 提取结构
-    structureResult = extractStructure(jsonData, options)
+    let outputHtml, outputText
 
-    // 格式化输出
-    elements.output.innerHTML = formatOutput(structureResult, 0, options.compact)
+    if (options.format === 'typescript') {
+      outputHtml = formatTypeScript(jsonData)
+      outputText = typeScriptToText(jsonData)
+      structureResult = { type: 'typescript', data: jsonData }
+    } else {
+      structureResult = { type: 'structure', data: extractStructure(jsonData, options) }
+      outputHtml = formatOutput(structureResult.data, 0, options.compact)
+      outputText = structureToText(structureResult.data, 0, options.compact)
+    }
 
-    // 计算处理时间
-    const processTime = (performance.now() - processStartTime).toFixed(1)
+    elements.output.innerHTML = outputHtml
+
+    const processTime = (performance.now() - startTime).toFixed(1)
     updateStatus(`完成 (${processTime}ms)`)
-
-    // 输出统计
-    const outputStats = getJsonStats(structureResult)
-    elements.outputStats.textContent = `${outputStats.keys} 个字段`
-
+    
+    saveToHistory(inputText, outputText)
     showToast('提取成功！')
   } catch (e) {
     elements.output.innerHTML = `<span style="color: #ef4444;">JSON 解析错误：${escapeHtml(e.message)}</span>`
@@ -336,9 +618,7 @@ elements.extractBtn.addEventListener('click', () => {
   }
 })
 
-/**
- * 复制按钮点击事件
- */
+// 复制按钮
 elements.copyBtn.addEventListener('click', async () => {
   if (!structureResult) {
     showToast('请先提取数据结构', 'error')
@@ -347,7 +627,14 @@ elements.copyBtn.addEventListener('click', async () => {
 
   try {
     const options = getOptions()
-    const text = structureToText(structureResult, 0, options.compact)
+    let text
+    
+    if (structureResult.type === 'typescript') {
+      text = typeScriptToText(structureResult.data)
+    } else {
+      text = structureToText(structureResult.data, 0, options.compact)
+    }
+
     await navigator.clipboard.writeText(text)
     showToast('已复制到剪贴板！')
   } catch (e) {
@@ -355,32 +642,44 @@ elements.copyBtn.addEventListener('click', async () => {
   }
 })
 
-/**
- * 粘贴按钮点击事件
- */
+// 粘贴按钮
 elements.pasteBtn.addEventListener('click', async () => {
   try {
     const text = await navigator.clipboard.readText()
     elements.jsonInput.value = text
-
-    // 更新输入统计
+    
     try {
       const data = JSON.parse(text)
       const stats = getJsonStats(data)
-      elements.inputStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层深度`
+      elements.inputStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层`
     } catch {
       elements.inputStats.textContent = ''
     }
-
+    
     showToast('已粘贴')
   } catch (e) {
     showToast('无法访问剪贴板', 'error')
   }
 })
 
-/**
- * 清空按钮点击事件
- */
+// 格式化按钮
+elements.formatBtn.addEventListener('click', () => {
+  const inputText = elements.jsonInput.value.trim()
+  if (!inputText) {
+    showToast('请先粘贴 JSON 数据', 'error')
+    return
+  }
+
+  try {
+    const jsonData = JSON.parse(inputText)
+    elements.jsonInput.value = JSON.stringify(jsonData, null, 2)
+    showToast('格式化成功！')
+  } catch (e) {
+    showToast('JSON 格式错误', 'error')
+  }
+})
+
+// 清空按钮
 elements.clearBtn.addEventListener('click', () => {
   elements.jsonInput.value = ''
   elements.output.innerHTML = ''
@@ -390,16 +689,100 @@ elements.clearBtn.addEventListener('click', () => {
   updateStatus('就绪')
 })
 
-/**
- * 设置按钮点击事件
- */
+// 设置按钮
 elements.settingsBtn.addEventListener('click', () => {
   elements.optionsPanel.classList.toggle('show')
 })
 
-/**
- * 输入框内容变化
- */
+// 主题按钮
+elements.themeBtn.addEventListener('click', toggleTheme)
+
+// 历史按钮
+elements.historyBtn.addEventListener('click', () => {
+  elements.historyPanel.classList.toggle('show')
+})
+
+// 清空历史
+elements.clearHistoryBtn.addEventListener('click', () => {
+  localStorage.removeItem(HISTORY_KEY)
+  renderHistory()
+  showToast('历史已清空')
+})
+
+// 历史记录点击
+elements.historyList.addEventListener('click', (e) => {
+  const item = e.target.closest('.history-item')
+  if (item) loadHistoryItem(item.dataset.id)
+})
+
+// 选项卡切换
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => switchTab(tab.dataset.tab))
+})
+
+// 对比按钮
+elements.compareBtn.addEventListener('click', () => {
+  const textA = elements.compareInputA.value.trim()
+  const textB = elements.compareInputB.value.trim()
+
+  if (!textA || !textB) {
+    showToast('请输入两个 JSON 进行对比', 'error')
+    return
+  }
+
+  try {
+    const jsonA = JSON.parse(textA)
+    const jsonB = JSON.parse(textB)
+    const result = compareStructures(jsonA, jsonB)
+    elements.compareOutput.innerHTML = formatCompareResult(result)
+    showToast('对比完成！')
+  } catch (e) {
+    elements.compareOutput.innerHTML = `<span style="color: #ef4444;">JSON 解析错误：${escapeHtml(e.message)}</span>`
+    showToast('JSON 格式错误', 'error')
+  }
+})
+
+// URL 获取按钮
+elements.fetchBtn.addEventListener('click', async () => {
+  const url = elements.urlInput.value.trim()
+  if (!url) {
+    showToast('请输入 URL', 'error')
+    return
+  }
+
+  elements.fetchOutput.innerHTML = '加载中...'
+  elements.fetchStats.textContent = ''
+
+  try {
+    const response = await fetch(url)
+    const data = await response.json()
+    
+    elements.fetchOutput.innerHTML = `<span style="color: #34d399;">// 响应数据</span>\n` + 
+      escapeHtml(JSON.stringify(data, null, 2))
+    
+    const stats = getJsonStats(data)
+    elements.fetchStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层`
+    
+    showToast('获取成功！')
+  } catch (e) {
+    elements.fetchOutput.innerHTML = `<span style="color: #ef4444;">请求失败：${escapeHtml(e.message)}</span>`
+    showToast('请求失败', 'error')
+  }
+})
+
+// 快捷键
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault()
+    elements.extractBtn.click()
+  }
+  if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+    e.preventDefault()
+    elements.copyBtn.click()
+  }
+})
+
+// 输入框内容变化
 elements.jsonInput.addEventListener('input', () => {
   const text = elements.jsonInput.value.trim()
   if (!text) {
@@ -410,31 +793,20 @@ elements.jsonInput.addEventListener('input', () => {
   try {
     const data = JSON.parse(text)
     const stats = getJsonStats(data)
-    elements.inputStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层深度`
+    elements.inputStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层`
   } catch {
     elements.inputStats.textContent = '无效 JSON'
   }
 })
 
-/**
- * 快捷键支持
- */
-document.addEventListener('keydown', (e) => {
-  // Ctrl+Enter 提取
-  if (e.ctrlKey && e.key === 'Enter') {
-    e.preventDefault()
-    elements.extractBtn.click()
-  }
-  // Ctrl+Shift+C 复制结构
-  if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-    e.preventDefault()
-    elements.copyBtn.click()
-  }
-  // Ctrl+V 粘贴时自动聚焦输入框
-  if (e.ctrlKey && e.key === 'v' && document.activeElement !== elements.jsonInput) {
-    elements.jsonInput.focus()
+// 点击外部关闭历史面板
+document.addEventListener('click', (e) => {
+  if (!elements.historyPanel.contains(e.target) && 
+      !elements.historyBtn.contains(e.target)) {
+    elements.historyPanel.classList.remove('show')
   }
 })
 
-// 初始化：默认显示选项面板
-elements.optionsPanel.classList.add('show')
+// ==================== 初始化 ====================
+initTheme()
+renderHistory()
