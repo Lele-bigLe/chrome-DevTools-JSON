@@ -481,22 +481,30 @@ function typeScriptToText(data, interfaceName = 'IResponse') {
 
 // ==================== 历史记录 ====================
 
+// 历史记录缓存，避免重复读取
+let historyCache = null
+
 /**
  * 保存到历史记录
  */
 function saveToHistory(input, output) {
   const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  
+  // 限制单条记录大小，超大 JSON 只保存前 10000 字符
+  const maxInputLength = 10000
   const item = {
     id: Date.now(),
-    input: input, // 保存完整 JSON
-    preview: input.slice(0, 50), // 用于显示的预览
-    time: new Date().toLocaleString()
+    input: input.length > maxInputLength ? input.slice(0, maxInputLength) : input,
+    preview: input.slice(0, 60).replace(/\s+/g, ' '),
+    time: new Date().toLocaleString(),
+    truncated: input.length > maxInputLength
   }
   
   history.unshift(item)
   if (history.length > MAX_HISTORY) history.pop()
   
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  historyCache = history
   renderHistory()
 }
 
@@ -504,7 +512,9 @@ function saveToHistory(input, output) {
  * 渲染历史记录
  */
 function renderHistory() {
-  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  // 使用缓存
+  const history = historyCache || JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  historyCache = history
   
   if (history.length === 0) {
     elements.historyList.innerHTML = '<div class="history-empty">暂无历史记录</div>'
@@ -523,13 +533,24 @@ function renderHistory() {
  * 加载历史记录项
  */
 function loadHistoryItem(id) {
-  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  // 使用缓存
+  const history = historyCache || JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
   const item = history.find(h => h.id === parseInt(id))
   
   if (item) {
+    // 切换到结构提取页签
+    switchTab('extract')
+    // 填充数据
     elements.jsonInput.value = item.input
     elements.historyPanel.classList.remove('show')
-    showToast('已加载历史记录')
+    
+    // 如果数据被截断，提示用户
+    if (item.truncated) {
+      showToast('数据较大，已截断加载', 'warning')
+    }
+    
+    // 自动提取
+    setTimeout(() => elements.extractBtn.click(), 50)
   }
 }
 
@@ -679,13 +700,19 @@ elements.formatBtn.addEventListener('click', () => {
   }
 })
 
-// 清空按钮
+// 清空按钮 - 根据当前页签清空对应内容
 elements.clearBtn.addEventListener('click', () => {
-  elements.jsonInput.value = ''
-  elements.output.innerHTML = ''
-  elements.inputStats.textContent = ''
-  elements.outputStats.textContent = ''
-  structureResult = null
+  if (currentTab === 'extract') {
+    elements.jsonInput.value = ''
+    elements.output.innerHTML = ''
+    elements.inputStats.textContent = ''
+    elements.outputStats.textContent = ''
+    structureResult = null
+  } else if (currentTab === 'compare') {
+    elements.compareInputA.value = ''
+    elements.compareInputB.value = ''
+    elements.compareOutput.innerHTML = ''
+  }
   updateStatus('就绪')
 })
 
