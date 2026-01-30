@@ -488,8 +488,8 @@ function saveToHistory(input, output) {
   const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
   const item = {
     id: Date.now(),
-    input: input.slice(0, 500),
-    output: output.slice(0, 500),
+    input: input, // 保存完整 JSON
+    preview: input.slice(0, 50), // 用于显示的预览
     time: new Date().toLocaleString()
   }
   
@@ -513,7 +513,7 @@ function renderHistory() {
 
   elements.historyList.innerHTML = history.map(item => `
     <div class="history-item" data-id="${item.id}">
-      <div class="history-item-title">${escapeHtml(item.input.slice(0, 50))}...</div>
+      <div class="history-item-title">${escapeHtml((item.preview || item.input.slice(0, 50)))}...</div>
       <div class="history-item-time">${item.time}</div>
     </div>
   `).join('')
