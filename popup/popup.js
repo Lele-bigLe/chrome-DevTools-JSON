@@ -871,9 +871,14 @@ elements.jsonInput.addEventListener('input', () => {
 
 // 点击外部关闭历史面板
 document.addEventListener('click', (e) => {
-  if (!elements.historyPanel.contains(e.target) && 
-      !elements.historyBtn.contains(e.target)) {
-    elements.historyPanel.classList.remove('show')
+  const historyPanel = document.getElementById('historyPanel')
+  const historyBtn = document.getElementById('historyBtn')
+  
+  if (historyPanel && historyBtn) {
+    // 如果点击的不是历史面板和历史按钮，则关闭面板
+    if (!historyPanel.contains(e.target) && !historyBtn.contains(e.target)) {
+      historyPanel.classList.remove('show')
+    }
   }
 })
 
