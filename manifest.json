@@ -2,13 +2,14 @@
   "manifest_version": 3,
   "name": "JSON Structure Extractor",
   "description": "从 JSON 数据中提取数据结构，快速了解接口返回格式",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "JSON 数据结构提取器"
   },
   "permissions": [
     "clipboardWrite",
-    "clipboardRead"
+    "clipboardRead",
+    "storage"
   ]
 }

@@ -24,7 +24,6 @@ const elements = {
   themeBtn: $('themeBtn'),
   historyBtn: $('historyBtn'),
   compareBtn: $('compareBtn'),
-  fetchBtn: $('fetchBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
 
   // 面板
@@ -45,11 +44,6 @@ const elements = {
   compareInputB: $('compareInputB'),
   compareOutput: $('compareOutput'),
 
-  // URL 获取
-  urlInput: $('urlInput'),
-  fetchOutput: $('fetchOutput'),
-  fetchStats: $('fetchStats'),
-
   // 选项卡和面板
   app: document.querySelector('.app')
 }
@@ -57,10 +51,77 @@ const elements = {
 // ==================== 状态管理 ====================
 let structureResult = null
 let currentTab = 'extract'
-const HISTORY_KEY = 'json_structure_history'
-const THEME_KEY = 'json_structure_theme'
-const OPTIONS_KEY = 'json_structure_options'
-const MAX_HISTORY = 20
+let historyCache = null
+const HISTORY_KEY = 'history'
+const THEME_KEY = 'theme'
+const OPTIONS_KEY = 'options'
+const MAX_HISTORY = 15 // 减少历史记录数量以提升性能
+
+// ==================== 存储工具函数 ====================
+
+/**
+ * 保存数据到 Chrome Storage
+ */
+function saveStorage(key, value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [key]: value }, resolve)
+  })
+}
+
+/**
+ * 从 Chrome Storage 读取数据
+ */
+function loadStorage(key, defaultValue = null) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([key], (result) => {
+      resolve(result[key] !== undefined ? result[key] : defaultValue)
+    })
+  })
+}
+
+/**
+ * 迁移 localStorage 数据到 chrome.storage.local
+ */
+async function migrateFromLocalStorage() {
+  const migrationKey = 'migrated_v1'
+  const migrated = await loadStorage(migrationKey, false)
+  
+  if (migrated) return
+  
+  // 迁移历史记录
+  const oldHistory = localStorage.getItem(HISTORY_KEY)
+  if (oldHistory) {
+    try {
+      const history = JSON.parse(oldHistory)
+      await saveStorage(HISTORY_KEY, history)
+      localStorage.removeItem(HISTORY_KEY)
+    } catch (e) {
+      // 忽略解析错误
+    }
+  }
+  
+  // 迁移主题
+  const oldTheme = localStorage.getItem(THEME_KEY)
+  if (oldTheme) {
+    await saveStorage(THEME_KEY, oldTheme)
+    localStorage.removeItem(THEME_KEY)
+  }
+  
+  // 迁移选项
+  const oldOptions = localStorage.getItem(OPTIONS_KEY)
+  if (oldOptions) {
+    try {
+      const options = JSON.parse(oldOptions)
+      await saveStorage(OPTIONS_KEY, options)
+      localStorage.removeItem(OPTIONS_KEY)
+    } catch (e) {
+      // 忽略解析错误
+    }
+  }
+  
+  // 标记已迁移
+  await saveStorage(migrationKey, true)
+}
 
 // ==================== 工具函数 ====================
 
@@ -482,17 +543,14 @@ function typeScriptToText(data, interfaceName = 'IResponse') {
 
 // ==================== 历史记录 ====================
 
-// 历史记录缓存，避免重复读取
-let historyCache = null
-
 /**
  * 保存到历史记录
  */
-function saveToHistory(input, output) {
-  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+async function saveToHistory(input) {
+  const history = historyCache || await loadStorage(HISTORY_KEY, [])
   
-  // 限制单条记录大小，超大 JSON 只保存前 10000 字符
-  const maxInputLength = 10000
+  // 限制单条记录大小
+  const maxInputLength = 5000
   const item = {
     id: Date.now(),
     input: input.length > maxInputLength ? input.slice(0, maxInputLength) : input,
@@ -504,8 +562,8 @@ function saveToHistory(input, output) {
   history.unshift(item)
   if (history.length > MAX_HISTORY) history.pop()
   
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
   historyCache = history
+  await saveStorage(HISTORY_KEY, history)
   renderHistory()
 }
 
@@ -513,9 +571,7 @@ function saveToHistory(input, output) {
  * 渲染历史记录
  */
 function renderHistory() {
-  // 使用缓存
-  const history = historyCache || JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
-  historyCache = history
+  const history = historyCache || []
   
   // 更新历史记录总数
   const headerSpan = document.querySelector('.history-header span')
@@ -537,11 +593,19 @@ function renderHistory() {
 }
 
 /**
+ * 初始化历史记录缓存
+ */
+async function initHistory() {
+  historyCache = await loadStorage(HISTORY_KEY, [])
+  renderHistory()
+}
+
+/**
  * 加载历史记录项
  */
 function loadHistoryItem(id) {
-  // 使用缓存
-  const history = historyCache || JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
+  // 使用内存缓存，避免异步读取
+  const history = historyCache || []
   const item = history.find(h => h.id === parseInt(id))
   
   if (item) {
@@ -566,25 +630,25 @@ function loadHistoryItem(id) {
 /**
  * 切换主题
  */
-function toggleTheme() {
+async function toggleTheme() {
   const current = elements.app.dataset.theme
   const next = current === 'dark' ? 'light' : 'dark'
   elements.app.dataset.theme = next
-  localStorage.setItem(THEME_KEY, next)
+  await saveStorage(THEME_KEY, next)
 }
 
 /**
  * 初始化主题 - 默认浅色主题
  */
-function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY) || 'light'
+async function initTheme() {
+  const saved = await loadStorage(THEME_KEY, 'light')
   elements.app.dataset.theme = saved
 }
 
 /**
  * 保存设置选项
  */
-function saveOptions() {
+async function saveOptions() {
   const options = {
     showArrayLength: elements.showArrayLength.checked,
     showSampleValue: elements.showSampleValue.checked,
@@ -593,26 +657,21 @@ function saveOptions() {
     maxDepth: elements.maxDepth.value,
     outputFormat: elements.outputFormat.value
   }
-  localStorage.setItem(OPTIONS_KEY, JSON.stringify(options))
+  await saveStorage(OPTIONS_KEY, options)
 }
 
 /**
  * 加载设置选项
  */
-function loadOptions() {
-  const saved = localStorage.getItem(OPTIONS_KEY)
-  if (saved) {
-    try {
-      const options = JSON.parse(saved)
-      elements.showArrayLength.checked = options.showArrayLength ?? true
-      elements.showSampleValue.checked = options.showSampleValue ?? false
-      elements.keysOnly.checked = options.keysOnly ?? true
-      elements.compactMode.checked = options.compactMode ?? false
-      elements.maxDepth.value = options.maxDepth ?? '0'
-      elements.outputFormat.value = options.outputFormat ?? 'structure'
-    } catch (e) {
-      // 忽略解析错误
-    }
+async function loadOptions() {
+  const options = await loadStorage(OPTIONS_KEY, null)
+  if (options) {
+    elements.showArrayLength.checked = options.showArrayLength ?? true
+    elements.showSampleValue.checked = options.showSampleValue ?? false
+    elements.keysOnly.checked = options.keysOnly ?? true
+    elements.compactMode.checked = options.compactMode ?? false
+    elements.maxDepth.value = options.maxDepth ?? '0'
+    elements.outputFormat.value = options.outputFormat ?? 'structure'
   }
 }
 
@@ -773,9 +832,9 @@ elements.historyBtn.addEventListener('click', (e) => {
 })
 
 // 清空历史
-elements.clearHistoryBtn.addEventListener('click', () => {
-  localStorage.removeItem(HISTORY_KEY)
-  historyCache = null // 清除缓存
+elements.clearHistoryBtn.addEventListener('click', async () => {
+  await chrome.storage.local.remove(HISTORY_KEY)
+  historyCache = [] // 清除缓存
   renderHistory()
   showToast('历史已清空')
 })
@@ -810,34 +869,6 @@ elements.compareBtn.addEventListener('click', () => {
   } catch (e) {
     elements.compareOutput.innerHTML = `<span style="color: #ef4444;">JSON 解析错误：${escapeHtml(e.message)}</span>`
     showToast('JSON 格式错误', 'error')
-  }
-})
-
-// URL 获取按钮
-elements.fetchBtn.addEventListener('click', async () => {
-  const url = elements.urlInput.value.trim()
-  if (!url) {
-    showToast('请输入 URL', 'error')
-    return
-  }
-
-  elements.fetchOutput.innerHTML = '加载中...'
-  elements.fetchStats.textContent = ''
-
-  try {
-    const response = await fetch(url)
-    const data = await response.json()
-    
-    elements.fetchOutput.innerHTML = `<span style="color: #34d399;">// 响应数据</span>\n` + 
-      escapeHtml(JSON.stringify(data, null, 2))
-    
-    const stats = getJsonStats(data)
-    elements.fetchStats.textContent = `${stats.keys} 个键 · ${stats.depth} 层`
-    
-    showToast('获取成功！')
-  } catch (e) {
-    elements.fetchOutput.innerHTML = `<span style="color: #ef4444;">请求失败：${escapeHtml(e.message)}</span>`
-    showToast('请求失败', 'error')
   }
 })
 
@@ -890,8 +921,13 @@ document.addEventListener('click', (e) => {
 })
 
 // ==================== 初始化 ====================
-initTheme()
-loadOptions()
-renderHistory()
-// 设置选项默认不显示
-elements.optionsPanel.classList.remove('show')
+;(async function init() {
+  // 首先迁移旧数据
+  await migrateFromLocalStorage()
+  // 然后初始化各模块
+  await initTheme()
+  await loadOptions()
+  await initHistory()
+  // 设置选项默认不显示
+  elements.optionsPanel.classList.remove('show')
+})()
