@@ -766,8 +766,9 @@ elements.settingsBtn.addEventListener('click', () => {
 // 主题按钮
 elements.themeBtn.addEventListener('click', toggleTheme)
 
-// 历史按钮
-elements.historyBtn.addEventListener('click', () => {
+// 历史按钮 - 点击切换显示，点击外部自动关闭
+elements.historyBtn.addEventListener('click', (e) => {
+  e.stopPropagation() // 阻止冒泡
   elements.historyPanel.classList.toggle('show')
 })
 
@@ -869,18 +870,18 @@ elements.jsonInput.addEventListener('input', () => {
   }
 })
 
-// 点击外部关闭历史面板
+// 点击外部关闭历史面板（使用捕获阶段确保先于其他事件）
 document.addEventListener('click', (e) => {
   const historyPanel = document.getElementById('historyPanel')
   const historyBtn = document.getElementById('historyBtn')
   
-  if (historyPanel && historyBtn) {
-    // 如果点击的不是历史面板和历史按钮，则关闭面板
-    if (!historyPanel.contains(e.target) && !historyBtn.contains(e.target)) {
+  if (historyPanel && historyPanel.classList.contains('show')) {
+    // 如果点击的不是历史面板内部和历史按钮
+    if (!historyPanel.contains(e.target) && e.target !== historyBtn && !historyBtn.contains(e.target)) {
       historyPanel.classList.remove('show')
     }
   }
-})
+}, true) // 使用捕获阶段
 
 // 选项变化时保存
 ;[elements.showArrayLength, elements.showSampleValue, elements.keysOnly, 
