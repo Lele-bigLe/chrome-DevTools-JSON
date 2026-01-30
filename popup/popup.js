@@ -774,6 +774,7 @@ elements.historyBtn.addEventListener('click', () => {
 // 清空历史
 elements.clearHistoryBtn.addEventListener('click', () => {
   localStorage.removeItem(HISTORY_KEY)
+  historyCache = null // 清除缓存
   renderHistory()
   showToast('历史已清空')
 })
