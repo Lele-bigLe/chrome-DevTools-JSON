@@ -59,6 +59,7 @@ let structureResult = null
 let currentTab = 'extract'
 const HISTORY_KEY = 'json_structure_history'
 const THEME_KEY = 'json_structure_theme'
+const OPTIONS_KEY = 'json_structure_options'
 const MAX_HISTORY = 20
 
 // ==================== 工具函数 ====================
@@ -516,6 +517,12 @@ function renderHistory() {
   const history = historyCache || JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]')
   historyCache = history
   
+  // 更新历史记录总数
+  const headerSpan = document.querySelector('.history-header span')
+  if (headerSpan) {
+    headerSpan.textContent = `历史记录 (${history.length})`
+  }
+  
   if (history.length === 0) {
     elements.historyList.innerHTML = '<div class="history-empty">暂无历史记录</div>'
     return
@@ -567,11 +574,46 @@ function toggleTheme() {
 }
 
 /**
- * 初始化主题
+ * 初始化主题 - 默认浅色主题
  */
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY) || 'dark'
+  const saved = localStorage.getItem(THEME_KEY) || 'light'
   elements.app.dataset.theme = saved
+}
+
+/**
+ * 保存设置选项
+ */
+function saveOptions() {
+  const options = {
+    showArrayLength: elements.showArrayLength.checked,
+    showSampleValue: elements.showSampleValue.checked,
+    keysOnly: elements.keysOnly.checked,
+    compactMode: elements.compactMode.checked,
+    maxDepth: elements.maxDepth.value,
+    outputFormat: elements.outputFormat.value
+  }
+  localStorage.setItem(OPTIONS_KEY, JSON.stringify(options))
+}
+
+/**
+ * 加载设置选项
+ */
+function loadOptions() {
+  const saved = localStorage.getItem(OPTIONS_KEY)
+  if (saved) {
+    try {
+      const options = JSON.parse(saved)
+      elements.showArrayLength.checked = options.showArrayLength ?? true
+      elements.showSampleValue.checked = options.showSampleValue ?? false
+      elements.keysOnly.checked = options.keysOnly ?? true
+      elements.compactMode.checked = options.compactMode ?? false
+      elements.maxDepth.value = options.maxDepth ?? '0'
+      elements.outputFormat.value = options.outputFormat ?? 'structure'
+    } catch (e) {
+      // 忽略解析错误
+    }
+  }
 }
 
 // ==================== 选项卡切换 ====================
@@ -834,6 +876,15 @@ document.addEventListener('click', (e) => {
   }
 })
 
+// 选项变化时保存
+;[elements.showArrayLength, elements.showSampleValue, elements.keysOnly, 
+  elements.compactMode, elements.maxDepth, elements.outputFormat].forEach(el => {
+  el.addEventListener('change', saveOptions)
+})
+
 // ==================== 初始化 ====================
 initTheme()
+loadOptions()
 renderHistory()
+// 设置选项默认不显示
+elements.optionsPanel.classList.remove('show')
