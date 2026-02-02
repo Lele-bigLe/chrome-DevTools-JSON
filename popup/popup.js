@@ -651,8 +651,7 @@ async function initTheme() {
 async function saveOptions() {
   const options = {
     showArrayLength: elements.showArrayLength.checked,
-    showSampleValue: elements.showSampleValue.checked,
-    keysOnly: elements.keysOnly.checked,
+    displayMode: elements.showSampleValue.checked ? 'showSample' : 'keysOnly',
     compactMode: elements.compactMode.checked,
     maxDepth: elements.maxDepth.value,
     outputFormat: elements.outputFormat.value
@@ -667,8 +666,17 @@ async function loadOptions() {
   const options = await loadStorage(OPTIONS_KEY, null)
   if (options) {
     elements.showArrayLength.checked = options.showArrayLength ?? true
-    elements.showSampleValue.checked = options.showSampleValue ?? false
-    elements.keysOnly.checked = options.keysOnly ?? true
+
+    // 处理单选按钮组
+    const displayMode = options.displayMode ?? 'keysOnly'
+    if (displayMode === 'showSample') {
+      elements.showSampleValue.checked = true
+      elements.keysOnly.checked = false
+    } else {
+      elements.showSampleValue.checked = false
+      elements.keysOnly.checked = true
+    }
+
     elements.compactMode.checked = options.compactMode ?? false
     elements.maxDepth.value = options.maxDepth ?? '0'
     elements.outputFormat.value = options.outputFormat ?? 'structure'
