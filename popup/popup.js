@@ -44,6 +44,15 @@ const elements = {
   compareInputB: $('compareInputB'),
   compareOutput: $('compareOutput'),
 
+  // URL 参数解析
+  urlInput: $('urlInput'),
+  urlPasteBtn: $('urlPasteBtn'),
+  urlParseBtn: $('urlParseBtn'),
+  urlCopyJsonBtn: $('urlCopyJsonBtn'),
+  urlClearBtn: $('urlClearBtn'),
+  urlParamsResult: $('urlParamsResult'),
+  urlParamsStats: $('urlParamsStats'),
+
   // 选项卡和面板
   app: document.querySelector('.app')
 }
@@ -683,6 +692,107 @@ async function loadOptions() {
   }
 }
 
+// ==================== URL 参数解析 ====================
+
+/**
+ * 从 URL 中提取查询参数字符串
+ * 支持标准 URL 和 Hash 路由（如 /#/path?key=value）
+ */
+function extractQueryString(urlStr) {
+  // Hash 路由中的参数（优先）
+  const hashIdx = urlStr.indexOf('#')
+  if (hashIdx !== -1) {
+    const hashPart = urlStr.slice(hashIdx + 1)
+    const qIdx = hashPart.indexOf('?')
+    if (qIdx !== -1) {
+      return hashPart.slice(qIdx + 1)
+    }
+  }
+  // 标准 query string
+  const qIdx = urlStr.indexOf('?')
+  if (qIdx !== -1) {
+    return urlStr.slice(qIdx + 1)
+  }
+  return ''
+}
+
+/**
+ * 解析查询参数列表
+ */
+function parseUrlParams(urlStr) {
+  const qs = extractQueryString(urlStr.trim())
+  if (!qs) return []
+
+  return qs.split('&').map((pair, index) => {
+    const eqIdx = pair.indexOf('=')
+    const key = eqIdx === -1 ? pair : pair.slice(0, eqIdx)
+    const raw = eqIdx === -1 ? '' : pair.slice(eqIdx + 1)
+    let decoded = raw
+    try { decoded = decodeURIComponent(raw) } catch (e) { /* 保留原始值 */ }
+    return { index: index + 1, key, raw, decoded }
+  }).filter(p => p.key !== '')
+}
+
+/**
+ * 渲染 URL 参数到结果区域
+ */
+function renderUrlParams(params) {
+  const el = elements.urlParamsResult
+  const statsEl = elements.urlParamsStats
+
+  if (params.length === 0) {
+    el.innerHTML = '<div class="url-params-placeholder">未找到任何参数</div>'
+    statsEl.textContent = ''
+    return
+  }
+
+  statsEl.textContent = `共 ${params.length} 个参数`
+
+  const rows = params.map(p => {
+    const keyHtml = escapeHtml(p.key)
+    const decodedHtml = escapeHtml(p.decoded)
+    const rawHtml = escapeHtml(p.raw)
+    const isEmpty = p.decoded === '' ? '<span class="param-empty">（空）</span>' : decodedHtml
+    const isEncoded = p.decoded !== p.raw
+    return `
+      <tr class="param-row">
+        <td class="param-index">${p.index}</td>
+        <td class="param-key">${keyHtml}</td>
+        <td class="param-decoded">${isEmpty}${isEncoded ? ' <span class="param-encoded-tag">encoded</span>' : ''}</td>
+        <td class="param-raw-col">${rawHtml}</td>
+        <td class="param-actions">
+          <button class="copy-val-btn" data-val="${escapeHtml(p.decoded)}" title="复制解码值">复制</button>
+        </td>
+      </tr>`
+  }).join('')
+
+  el.innerHTML = `
+    <table class="params-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>参数名</th>
+          <th>解码值</th>
+          <th>原始值</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`
+
+  // 单个复制按钮事件
+  el.querySelectorAll('.copy-val-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.val)
+        showToast('已复制！')
+      } catch (e) {
+        showToast('复制失败', 'error')
+      }
+    })
+  })
+}
+
 // ==================== 选项卡切换 ====================
 
 /**
@@ -821,8 +931,80 @@ elements.clearBtn.addEventListener('click', () => {
     elements.compareInputA.value = ''
     elements.compareInputB.value = ''
     elements.compareOutput.innerHTML = ''
+  } else if (currentTab === 'urlParams') {
+    elements.urlInput.value = ''
+    elements.urlParamsResult.innerHTML = '<div class="url-params-placeholder">请输入 URL 后点击「解析」</div>'
+    elements.urlParamsStats.textContent = ''
   }
   updateStatus('就绪')
+})
+
+// ==================== URL 参数事件 ====================
+
+// 粘贴 URL
+elements.urlPasteBtn.addEventListener('click', async () => {
+  try {
+    const text = await navigator.clipboard.readText()
+    elements.urlInput.value = text
+    showToast('已粘贴')
+  } catch (e) {
+    showToast('无法访问剪贴板', 'error')
+  }
+})
+
+// 解析 URL 参数
+elements.urlParseBtn.addEventListener('click', () => {
+  const urlStr = elements.urlInput.value.trim()
+  if (!urlStr) {
+    showToast('请先输入 URL 地址', 'error')
+    return
+  }
+  const params = parseUrlParams(urlStr)
+  renderUrlParams(params)
+  if (params.length > 0) {
+    showToast(`解析完成，共 ${params.length} 个参数`)
+  } else {
+    showToast('未找到任何参数', 'error')
+  }
+})
+
+// 复制为 JSON
+elements.urlCopyJsonBtn.addEventListener('click', async () => {
+  const urlStr = elements.urlInput.value.trim()
+  if (!urlStr) {
+    showToast('请先输入 URL 地址', 'error')
+    return
+  }
+  const params = parseUrlParams(urlStr)
+  if (params.length === 0) {
+    showToast('未找到任何参数', 'error')
+    return
+  }
+  // 转换为 key-value 对象
+  const obj = {}
+  params.forEach(p => { obj[p.key] = p.decoded })
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(obj, null, 2))
+    showToast('已复制 JSON！')
+  } catch (e) {
+    showToast('复制失败', 'error')
+  }
+})
+
+// 清空 URL 输入
+elements.urlClearBtn.addEventListener('click', () => {
+  elements.urlInput.value = ''
+  elements.urlParamsResult.innerHTML = '<div class="url-params-placeholder">请输入 URL 后点击「解析」</div>'
+  elements.urlParamsStats.textContent = ''
+  updateStatus('就绪')
+})
+
+// 输入框按 Enter 自动解析（Ctrl+Enter）
+elements.urlInput.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault()
+    elements.urlParseBtn.click()
+  }
 })
 
 // 设置按钮

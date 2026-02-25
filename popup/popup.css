@@ -512,6 +512,130 @@ body {
   background: var(--text-muted);
 }
 
+/* URL 参数解析 */
+.url-input-panel {
+  flex: none;
+}
+
+.url-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.url-params-result {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  min-height: 0;
+}
+
+.url-params-placeholder {
+  padding: 30px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.params-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.params-table thead th {
+  position: sticky;
+  top: 0;
+  padding: 7px 10px;
+  text-align: left;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+
+.params-table thead th:nth-child(1) { width: 32px; }
+.params-table thead th:nth-child(2) { width: 28%; }
+.params-table thead th:nth-child(3) { width: auto; }
+.params-table thead th:nth-child(4) { width: 26%; }
+.params-table thead th:nth-child(5) { width: 50px; }
+
+.param-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.param-row td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.param-index {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.param-key {
+  color: #7dd3fc;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-weight: 600;
+}
+
+.param-decoded {
+  color: var(--text-primary);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.param-raw-col {
+  color: var(--text-muted);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+}
+
+.param-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.param-encoded-tag {
+  display: inline-block;
+  padding: 0 4px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
+  border-radius: 3px;
+  font-size: 10px;
+  font-style: normal;
+  font-family: sans-serif;
+  vertical-align: middle;
+}
+
+.copy-val-btn {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.copy-val-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
 /* 动画 */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-10px); }
