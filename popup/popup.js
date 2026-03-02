@@ -558,8 +558,8 @@ function typeScriptToText(data, interfaceName = 'IResponse') {
 async function saveToHistory(input) {
   const history = historyCache || await loadStorage(HISTORY_KEY, [])
   
-  // 限制单条记录大小
-  const maxInputLength = 5000
+  // 限制单条记录大小（chrome.storage.local 有 5MB 配额，100KB 每条完全够用）
+  const maxInputLength = 100000
   const item = {
     id: Date.now(),
     input: input.length > maxInputLength ? input.slice(0, maxInputLength) : input,
@@ -624,9 +624,10 @@ function loadHistoryItem(id) {
     elements.jsonInput.value = item.input
     elements.historyPanel.classList.remove('show')
     
-    // 如果数据被截断，提示用户
+    // 如果数据被截断，提示用户并跳过自动提取（截断的 JSON 无法正常解析）
     if (item.truncated) {
-      showToast('数据较大，已截断加载', 'warning')
+      showToast('数据过大，历史仅保存了部分内容，自动提取已跳过', 'warning')
+      return
     }
     
     // 自动提取
