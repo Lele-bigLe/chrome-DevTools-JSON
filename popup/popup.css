@@ -646,3 +646,70 @@ body {
 .history-panel.show {
   animation: fadeIn 0.2s ease;
 }
+
+/* 输出区搜索框 */
+.output-search {
+  flex-shrink: 0;
+  width: 110px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.output-search:focus {
+  border-color: var(--primary);
+}
+.output-search::placeholder {
+  color: var(--text-muted);
+}
+
+/* 折叠按钮 */
+.fold-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 3px;
+  border: 1px solid #475569;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.fold-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* 折叠状态 */
+.node-body.collapsed {
+  display: none;
+}
+.node-close.collapsed {
+  display: none;
+}
+.node-ellipsis {
+  display: none;
+  color: #64748b;
+  font-style: italic;
+}
+.node-ellipsis.show {
+  display: inline;
+}
+
+/* 搜索高亮 */
+.key.search-match {
+  background: rgba(251,191,36,0.25);
+  border-radius: 2px;
+  outline: 1px solid rgba(251,191,36,0.5);
+}

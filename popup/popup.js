@@ -38,6 +38,8 @@ const elements = {
   compactMode: $('compactMode'),
   maxDepth: $('maxDepth'),
   outputFormat: $('outputFormat'),
+  sortKeys: $('sortKeys'),
+  searchInput: $('searchInput'),
 
   // 对比模式
   compareInputA: $('compareInputA'),
@@ -498,15 +500,15 @@ function formatOutput(structure, indent = 0, compact = false) {
     const keys = Object.keys(structure)
     if (keys.length === 0) return '<span class="bracket">{}</span>'
 
-    let result = `<span class="bracket">{</span>${newline}`
+    let rows = ''
     keys.forEach((key, index) => {
       const value = formatOutput(structure[key], indent + 1, compact)
       const comma = index < keys.length - 1 ? ',' : ''
       const lineSpaces = compact ? '' : '  '.repeat(indent + 1)
-      result += `${lineSpaces}<span class="key">"${escapeHtml(key)}"</span>: ${value}${comma}${newline}`
+      rows += `${lineSpaces}<span class="key">"${escapeHtml(key)}"</span>: ${value}${comma}${newline}`
     })
-    result += `${spaces}<span class="bracket">}</span>`
-    return result
+    const foldBtn = compact ? '' : '<span class="fold-btn" title="折叠/展开">−</span>'
+    return `<span class="node">${foldBtn}<span class="bracket">{</span><span class="node-ellipsis"> … }</span><span class="node-body">${newline}${rows}${spaces}</span><span class="node-close bracket">}</span></span>`
   }
 
   return escapeHtml(String(structure))
@@ -859,6 +861,7 @@ elements.extractBtn.addEventListener('click', () => {
 
     elements.output.innerHTML = outputHtml
     elements.outputStats.textContent = `${outputText.split(String.fromCharCode(10)).length} 行`
+    elements.searchInput.value = ''
 
     const processTime = (performance.now() - startTime).toFixed(1)
     updateStatus(`完成 (${processTime}ms)`)
@@ -1124,6 +1127,43 @@ document.addEventListener('click', (e) => {
   elements.compactMode, elements.maxDepth, elements.outputFormat].forEach(el => {
   el.addEventListener('change', saveOptions)
 })
+
+// ==================== 折叠/展开 ====================
+
+// 点击折叠按钮
+elements.output.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fold-btn')
+  if (!btn) return
+  const node = btn.parentElement
+  const body = node.querySelector(':scope > .node-body')
+  const close = node.querySelector(':scope > .node-close')
+  const ellipsis = node.querySelector(':scope > .node-ellipsis')
+  if (!body) return
+  const collapsed = body.classList.toggle('collapsed')
+  if (close) close.classList.toggle('collapsed', collapsed)
+  if (ellipsis) ellipsis.classList.toggle('show', collapsed)
+  btn.textContent = collapsed ? '+' : '−'
+})
+
+// ==================== 搜索 ====================
+
+let searchTimer = null
+elements.searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(applySearch, 120)
+})
+
+function applySearch() {
+  const q = elements.searchInput.value.trim().toLowerCase()
+  const keys = elements.output.querySelectorAll('.key')
+  keys.forEach(el => {
+    if (q && el.textContent.toLowerCase().includes(q)) {
+      el.classList.add('search-match')
+    } else {
+      el.classList.remove('search-match')
+    }
+  })
+}
 
 // ==================== 初始化 ====================
 ;(async function init() {
