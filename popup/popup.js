@@ -555,7 +555,7 @@ function typeScriptToText(data, interfaceName = 'IResponse') {
 /**
  * 保存到历史记录
  */
-async function saveToHistory(input) {
+async function saveToHistory(input, output = '') {
   const history = historyCache || await loadStorage(HISTORY_KEY, [])
   
   // 限制单条记录大小（chrome.storage.local 有 5MB 配额，100KB 每条完全够用）
@@ -565,7 +565,8 @@ async function saveToHistory(input) {
     input: input.length > maxInputLength ? input.slice(0, maxInputLength) : input,
     preview: input.slice(0, 60).replace(/\s+/g, ' '),
     time: new Date().toLocaleString(),
-    truncated: input.length > maxInputLength
+    truncated: input.length > maxInputLength,
+    output
   }
   
   history.unshift(item)
@@ -845,6 +846,7 @@ elements.extractBtn.addEventListener('click', () => {
     }
 
     elements.output.innerHTML = outputHtml
+    elements.outputStats.textContent = `${outputText.split(String.fromCharCode(10)).length} 行`
 
     const processTime = (performance.now() - startTime).toFixed(1)
     updateStatus(`完成 (${processTime}ms)`)
