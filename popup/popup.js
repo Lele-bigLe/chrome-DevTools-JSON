@@ -399,10 +399,16 @@ function compareStructures(a, b, path = '') {
       result.same.push({ path: path || 'root', type: 'object' })
     }
   }
-  // 都是数组
+  // 都是数组 - 合并所有元素 key union 后对比
   else if (typeA === 'array') {
     if (a.length > 0 && b.length > 0) {
-      const sub = compareStructures(a[0], b[0], path + '[0]')
+      // 将数组中所有对象元素的 key 合并，避免仅取 [0] 漏检异构数组
+      const mergeItems = arr => {
+        const objItems = arr.filter(x => x && typeof x === 'object' && !Array.isArray(x))
+        if (objItems.length === 0) return arr[0]
+        return Object.assign({}, ...objItems)
+      }
+      const sub = compareStructures(mergeItems(a), mergeItems(b), path + '[]')
       result.same.push(...sub.same)
       result.added.push(...sub.added)
       result.removed.push(...sub.removed)
@@ -614,26 +620,32 @@ async function initHistory() {
  * 加载历史记录项
  */
 function loadHistoryItem(id) {
-  // 使用内存缓存，避免异步读取
   const history = historyCache || []
   const item = history.find(h => h.id === parseInt(id))
-  
-  if (item) {
-    // 切换到结构提取页签
-    switchTab('extract')
-    // 填充数据
-    elements.jsonInput.value = item.input
-    elements.historyPanel.classList.remove('show')
-    
-    // 如果数据被截断，提示用户并跳过自动提取（截断的 JSON 无法正常解析）
-    if (item.truncated) {
-      showToast('数据过大，历史仅保存了部分内容，自动提取已跳过', 'warning')
-      return
-    }
-    
-    // 自动提取
-    setTimeout(() => elements.extractBtn.click(), 50)
+  if (!item) return
+
+  switchTab('extract')
+  elements.jsonInput.value = item.input
+  elements.historyPanel.classList.remove('show')
+
+  // 有已保存的 output 直接渲染，无需重新提取
+  if (item.output) {
+    const outputLines = item.output.split(String.fromCharCode(10)).length
+    elements.output.textContent = item.output
+    elements.outputStats.textContent = `${outputLines} 行`
+    structureResult = null
+    updateStatus('历史记录')
+    if (item.truncated) showToast('输入数据过大，已截断；结果来自历史缓存', '')
+    return
   }
+
+  // 旧条目无 output 字段，截断时无法提取
+  if (item.truncated) {
+    showToast('数据过大，历史仅保存了部分内容，自动提取已跳过', '')
+    return
+  }
+
+  setTimeout(() => elements.extractBtn.click(), 50)
 }
 
 // ==================== 主题切换 ====================
