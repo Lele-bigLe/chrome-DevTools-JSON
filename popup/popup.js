@@ -170,6 +170,7 @@ function getOptions() {
     showSample: elements.showSampleValue.checked,
     keysOnly: elements.keysOnly.checked,
     compact: elements.compactMode.checked,
+    sortKeys: elements.sortKeys.checked,
     maxDepth: parseInt(elements.maxDepth.value) || 0,
     format: elements.outputFormat.value
   }
@@ -200,7 +201,7 @@ function getJsonStats(data) {
  * 提取数据结构
  */
 function extractStructure(data, options = {}, depth = 0, seen = new WeakSet()) {
-  const { showLength = true, showSample = false, keysOnly = false, maxDepth = 0 } = options
+  const { showLength = true, showSample = false, keysOnly = false, sortKeys = false, maxDepth = 0 } = options
 
   // 深度限制
   if (maxDepth > 0 && depth >= maxDepth) return '...'
@@ -255,8 +256,11 @@ function extractStructure(data, options = {}, depth = 0, seen = new WeakSet()) {
 
   // 对象
   if (type === 'object') {
-    const keys = Object.keys(data)
+    let keys = Object.keys(data)
     if (keys.length === 0) return {}
+
+    // 键名排序
+    if (sortKeys) keys = keys.slice().sort()
 
     const result = {}
     for (const key of keys) {
@@ -678,6 +682,7 @@ async function saveOptions() {
     showArrayLength: elements.showArrayLength.checked,
     displayMode: elements.showSampleValue.checked ? 'showSample' : 'keysOnly',
     compactMode: elements.compactMode.checked,
+    sortKeys: elements.sortKeys.checked,
     maxDepth: elements.maxDepth.value,
     outputFormat: elements.outputFormat.value
   }
@@ -703,6 +708,7 @@ async function loadOptions() {
     }
 
     elements.compactMode.checked = options.compactMode ?? false
+    elements.sortKeys.checked = options.sortKeys ?? false
     elements.maxDepth.value = options.maxDepth ?? '0'
     elements.outputFormat.value = options.outputFormat ?? 'structure'
   }
@@ -1123,8 +1129,8 @@ document.addEventListener('click', (e) => {
 }, true) // 使用捕获阶段
 
 // 选项变化时保存
-;[elements.showArrayLength, elements.showSampleValue, elements.keysOnly, 
-  elements.compactMode, elements.maxDepth, elements.outputFormat].forEach(el => {
+;[elements.showArrayLength, elements.showSampleValue, elements.keysOnly,
+  elements.compactMode, elements.sortKeys, elements.maxDepth, elements.outputFormat].forEach(el => {
   el.addEventListener('change', saveOptions)
 })
 
