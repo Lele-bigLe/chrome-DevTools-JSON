@@ -48,6 +48,7 @@ const elements = {
 
   // URL 参数解析
   urlInput: $('urlInput'),
+  urlCurrentTabBtn: $('urlCurrentTabBtn'),
   urlPasteBtn: $('urlPasteBtn'),
   urlParseBtn: $('urlParseBtn'),
   urlCopyJsonBtn: $('urlCopyJsonBtn'),
@@ -747,12 +748,160 @@ function parseUrlParams(urlStr) {
 
   return qs.split('&').map((pair, index) => {
     const eqIdx = pair.indexOf('=')
-    const key = eqIdx === -1 ? pair : pair.slice(0, eqIdx)
+    const rawKey = eqIdx === -1 ? pair : pair.slice(0, eqIdx)
     const raw = eqIdx === -1 ? '' : pair.slice(eqIdx + 1)
+    let key = rawKey
     let decoded = raw
-    try { decoded = decodeURIComponent(raw) } catch (e) { /* 保留原始值 */ }
+    try { key = decodeURIComponent(rawKey.replace(/\+/g, '%20')) } catch (e) { /* 保留原始值 */ }
+    try { decoded = decodeURIComponent(raw.replace(/\+/g, '%20')) } catch (e) { /* 保留原始值 */ }
     return { index: index + 1, key, raw, decoded }
   }).filter(p => p.key !== '')
+}
+
+/**
+ * 提取编辑器中有效的 URL 参数
+ */
+function getEffectiveUrlParams(params) {
+  return params
+    .map((param) => ({
+      key: typeof param.key === 'string' ? param.key.trim() : '',
+      decoded: typeof param.decoded === 'string' ? param.decoded : ''
+    }))
+    .filter(param => param.key !== '')
+    .map((param, index) => ({
+      index: index + 1,
+      key: param.key,
+      decoded: param.decoded,
+      raw: encodeURIComponent(param.decoded)
+    }))
+}
+
+/**
+ * 拆分 URL，保留 query 应该写回的位置
+ */
+function splitUrlForParams(urlStr) {
+  const hashIdx = urlStr.indexOf('#')
+
+  if (hashIdx !== -1) {
+    const beforeHash = urlStr.slice(0, hashIdx)
+    const hashPart = urlStr.slice(hashIdx + 1)
+    const hashQueryIdx = hashPart.indexOf('?')
+
+    if (hashQueryIdx !== -1) {
+      return {
+        prefix: `${beforeHash}#${hashPart.slice(0, hashQueryIdx)}`,
+        suffix: ''
+      }
+    }
+
+    if (hashPart.startsWith('/') || hashPart.startsWith('!/')) {
+      return {
+        prefix: urlStr,
+        suffix: ''
+      }
+    }
+
+    const normalQueryIdx = beforeHash.indexOf('?')
+    if (normalQueryIdx !== -1) {
+      return {
+        prefix: beforeHash.slice(0, normalQueryIdx),
+        suffix: urlStr.slice(hashIdx)
+      }
+    }
+
+    return {
+      prefix: beforeHash,
+      suffix: urlStr.slice(hashIdx)
+    }
+  }
+
+  const queryIdx = urlStr.indexOf('?')
+  if (queryIdx !== -1) {
+    return {
+      prefix: urlStr.slice(0, queryIdx),
+      suffix: ''
+    }
+  }
+
+  return {
+    prefix: urlStr,
+    suffix: ''
+  }
+}
+
+/**
+ * 重新组装 URL
+ */
+function buildUrlWithParams(urlStr, params) {
+  const { prefix, suffix } = splitUrlForParams(urlStr.trim())
+  const effectiveParams = getEffectiveUrlParams(params)
+
+  if (effectiveParams.length === 0) {
+    return `${prefix}${suffix}`
+  }
+
+  const queryString = effectiveParams
+    .map(param => `${encodeURIComponent(param.key)}=${encodeURIComponent(param.decoded)}`)
+    .join('&')
+
+  return `${prefix}?${queryString}${suffix}`
+}
+
+/**
+ * 读取参数编辑器当前内容
+ */
+function collectUrlParamsFromEditor() {
+  return Array.from(elements.urlParamsResult.querySelectorAll('.param-row')).map(row => ({
+    key: row.querySelector('.param-key-input')?.value || '',
+    decoded: row.querySelector('.param-value-input')?.value || ''
+  }))
+}
+
+/**
+ * 获取参数的编码预览
+ */
+function getParamPreviewHtml(key, decoded) {
+  const trimmedKey = key.trim()
+  if (!trimmedKey) {
+    return '<span class="param-preview-empty">键名为空时不会回填</span>'
+  }
+
+  return escapeHtml(`${encodeURIComponent(trimmedKey)}=${encodeURIComponent(decoded)}`)
+}
+
+/**
+ * 刷新参数统计
+ */
+function updateUrlParamsStats(params) {
+  const effectiveParams = getEffectiveUrlParams(params)
+  elements.urlParamsStats.textContent = `共 ${effectiveParams.length} 个参数`
+}
+
+/**
+ * 获取当前激活标签页的 URL
+ */
+function getCurrentTabUrl() {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message))
+        return
+      }
+
+      const activeTab = tabs?.[0]
+      if (!activeTab) {
+        reject(new Error('未找到当前标签页'))
+        return
+      }
+
+      if (!activeTab.url) {
+        reject(new Error('当前页面地址不可读取'))
+        return
+      }
+
+      resolve(activeTab.url)
+    })
+  })
 }
 
 /**
@@ -760,59 +909,54 @@ function parseUrlParams(urlStr) {
  */
 function renderUrlParams(params) {
   const el = elements.urlParamsResult
-  const statsEl = elements.urlParamsStats
+  const editorParams = Array.isArray(params) ? params : []
 
-  if (params.length === 0) {
-    el.innerHTML = '<div class="url-params-placeholder">未找到任何参数</div>'
-    statsEl.textContent = ''
-    return
-  }
+  updateUrlParamsStats(editorParams)
 
-  statsEl.textContent = `共 ${params.length} 个参数`
-
-  const rows = params.map(p => {
-    const keyHtml = escapeHtml(p.key)
-    const decodedHtml = escapeHtml(p.decoded)
-    const rawHtml = escapeHtml(p.raw)
-    const isEmpty = p.decoded === '' ? '<span class="param-empty">（空）</span>' : decodedHtml
-    const isEncoded = p.decoded !== p.raw
+  const rows = editorParams.map((param, index) => {
+    const key = param.key || ''
+    const decoded = param.decoded || ''
     return `
-      <tr class="param-row">
-        <td class="param-index">${p.index}</td>
-        <td class="param-key">${keyHtml}</td>
-        <td class="param-decoded">${isEmpty}${isEncoded ? ' <span class="param-encoded-tag">encoded</span>' : ''}</td>
-        <td class="param-raw-col">${rawHtml}</td>
+      <tr class="param-row" data-row-index="${index}">
+        <td class="param-index">${index + 1}</td>
+        <td>
+          <input class="param-input param-key-input" type="text" value="${escapeHtml(key)}" placeholder="如 token">
+        </td>
+        <td>
+          <input class="param-input param-value-input" type="text" value="${escapeHtml(decoded)}" placeholder="参数值">
+        </td>
+        <td class="param-raw-col">${getParamPreviewHtml(key, decoded)}</td>
         <td class="param-actions">
-          <button class="copy-val-btn" data-val="${escapeHtml(p.decoded)}" title="复制解码值">复制</button>
+          <div class="param-action-group">
+            <button class="param-mini-btn" data-url-action="copy" title="复制参数值">复制</button>
+            <button class="param-mini-btn danger" data-url-action="delete" title="删除这一行">删除</button>
+          </div>
         </td>
       </tr>`
   }).join('')
 
   el.innerHTML = `
-    <table class="params-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>参数名</th>
-          <th>解码值</th>
-          <th>原始值</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`
-
-  // 单个复制按钮事件
-  el.querySelectorAll('.copy-val-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(btn.dataset.val)
-        showToast('已复制！')
-      } catch (e) {
-        showToast('复制失败', 'error')
-      }
-    })
-  })
+    <div class="url-param-editor-toolbar">
+      <span class="url-editor-tip">支持直接编辑、新增、删除，然后回填到上方输入框</span>
+      <div class="url-param-editor-actions">
+        <button class="toolbar-btn" data-url-action="add">新增参数</button>
+        <button class="toolbar-btn primary" data-url-action="apply">回填输入框</button>
+      </div>
+    </div>
+    ${editorParams.length === 0 ? '<div class="url-params-placeholder">未找到参数，可点击“新增参数”继续编辑</div>' : `
+      <table class="params-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>参数名</th>
+            <th>参数值</th>
+            <th>编码预览</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `}`
 }
 
 // ==================== 选项卡切换 ====================
@@ -965,6 +1109,27 @@ elements.clearBtn.addEventListener('click', () => {
 
 // ==================== URL 参数事件 ====================
 
+// 获取当前页面 URL
+elements.urlCurrentTabBtn.addEventListener('click', async () => {
+  try {
+    const currentUrl = await getCurrentTabUrl()
+    elements.urlInput.value = currentUrl
+
+    const params = parseUrlParams(currentUrl)
+    renderUrlParams(params)
+    updateStatus('已读取当前页')
+
+    if (params.length > 0) {
+      showToast(`已获取并解析当前页 URL，共 ${params.length} 个参数`)
+    } else {
+      showToast('已获取当前页 URL')
+    }
+  } catch (e) {
+    showToast(e.message || '读取当前页失败', 'error')
+    updateStatus('错误')
+  }
+})
+
 // 粘贴 URL
 elements.urlPasteBtn.addEventListener('click', async () => {
   try {
@@ -994,16 +1159,16 @@ elements.urlParseBtn.addEventListener('click', () => {
 
 // 复制为 JSON
 elements.urlCopyJsonBtn.addEventListener('click', async () => {
-  const urlStr = elements.urlInput.value.trim()
-  if (!urlStr) {
+  const editorParams = collectUrlParamsFromEditor()
+  const params = editorParams.length > 0
+    ? getEffectiveUrlParams(editorParams)
+    : getEffectiveUrlParams(parseUrlParams(elements.urlInput.value.trim()))
+
+  if (params.length === 0) {
     showToast('请先输入 URL 地址', 'error')
     return
   }
-  const params = parseUrlParams(urlStr)
-  if (params.length === 0) {
-    showToast('未找到任何参数', 'error')
-    return
-  }
+
   // 转换为 key-value 对象
   const obj = {}
   params.forEach(p => { obj[p.key] = p.decoded })
@@ -1029,6 +1194,71 @@ elements.urlInput.addEventListener('keydown', (e) => {
     e.preventDefault()
     elements.urlParseBtn.click()
   }
+})
+
+// 参数表交互
+elements.urlParamsResult.addEventListener('click', async (e) => {
+  const actionBtn = e.target.closest('[data-url-action]')
+  if (!actionBtn) return
+
+  const action = actionBtn.dataset.urlAction
+
+  if (action === 'add') {
+    renderUrlParams([...collectUrlParamsFromEditor(), { key: '', decoded: '' }])
+    updateStatus('已新增参数行')
+    return
+  }
+
+  if (action === 'apply') {
+    const currentUrl = elements.urlInput.value.trim()
+    if (!currentUrl) {
+      showToast('请先输入 URL 地址', 'error')
+      return
+    }
+
+    const nextUrl = buildUrlWithParams(currentUrl, collectUrlParamsFromEditor())
+    elements.urlInput.value = nextUrl
+    renderUrlParams(parseUrlParams(nextUrl))
+    updateStatus('已回填 URL')
+    showToast('已回填到输入框')
+    return
+  }
+
+  const row = actionBtn.closest('.param-row')
+  if (!row) return
+
+  if (action === 'copy') {
+    const value = row.querySelector('.param-value-input')?.value || ''
+    try {
+      await navigator.clipboard.writeText(value)
+      showToast('已复制！')
+    } catch (e) {
+      showToast('复制失败', 'error')
+    }
+    return
+  }
+
+  if (action === 'delete') {
+    const rowIndex = Number(row.dataset.rowIndex)
+    const nextRows = collectUrlParamsFromEditor().filter((item, index) => index !== rowIndex)
+    renderUrlParams(nextRows)
+    updateStatus('已删除参数行')
+  }
+})
+
+elements.urlParamsResult.addEventListener('input', (e) => {
+  const row = e.target.closest('.param-row')
+  if (!row) return
+
+  const key = row.querySelector('.param-key-input')?.value || ''
+  const decoded = row.querySelector('.param-value-input')?.value || ''
+  const previewCell = row.querySelector('.param-raw-col')
+
+  if (previewCell) {
+    previewCell.innerHTML = getParamPreviewHtml(key, decoded)
+  }
+
+  updateUrlParamsStats(collectUrlParamsFromEditor())
 })
 
 // 设置按钮

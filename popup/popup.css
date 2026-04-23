@@ -525,6 +525,8 @@ body {
 }
 
 .url-params-result {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -533,7 +535,32 @@ body {
   min-height: 0;
 }
 
+.url-param-editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.url-editor-tip {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.url-param-editor-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .url-params-placeholder {
+  flex: 1;
   padding: 30px;
   text-align: center;
   color: var(--text-muted);
@@ -561,10 +588,10 @@ body {
 }
 
 .params-table thead th:nth-child(1) { width: 32px; }
-.params-table thead th:nth-child(2) { width: 28%; }
-.params-table thead th:nth-child(3) { width: auto; }
-.params-table thead th:nth-child(4) { width: 26%; }
-.params-table thead th:nth-child(5) { width: 50px; }
+.params-table thead th:nth-child(2) { width: 22%; }
+.params-table thead th:nth-child(3) { width: 26%; }
+.params-table thead th:nth-child(4) { width: auto; }
+.params-table thead th:nth-child(5) { width: 102px; }
 
 .param-row:hover {
   background: var(--bg-tertiary);
@@ -599,6 +626,59 @@ body {
   color: var(--text-muted);
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 11px;
+}
+
+.param-preview-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.param-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.param-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.param-actions {
+  white-space: nowrap;
+}
+
+.param-action-group {
+  display: flex;
+  gap: 4px;
+}
+
+.param-mini-btn {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.param-mini-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.param-mini-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--danger);
 }
 
 .param-empty {
