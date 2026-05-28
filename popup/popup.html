@@ -157,18 +157,28 @@
       <div class="compare-container">
         <div class="panel">
           <div class="panel-header">
-            <span class="panel-title">📄 JSON A</span>
+            <span class="panel-title">📄 JSON A（左侧）</span>
           </div>
-          <textarea id="compareInputA" class="code-area" placeholder="粘贴第一个 JSON..."></textarea>
+          <textarea id="compareInputA" class="code-area" placeholder="粘贴左侧 JSON..." spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="off"></textarea>
+        </div>
+        <div class="compare-swap-wrap">
+          <button id="compareSwapBtn" class="compare-swap-btn" title="互换左右 JSON，更换基准">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="17 1 21 5 17 9"/>
+              <path d="M3 5h18"/>
+              <polyline points="7 23 3 19 7 15"/>
+              <path d="M21 19H3"/>
+            </svg>
+          </button>
         </div>
         <div class="panel">
           <div class="panel-header">
-            <span class="panel-title">📄 JSON B</span>
+            <span class="panel-title">📄 JSON B（右侧）</span>
           </div>
-          <textarea id="compareInputB" class="code-area" placeholder="粘贴第二个 JSON..."></textarea>
+          <textarea id="compareInputB" class="code-area" placeholder="粘贴右侧 JSON..." spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" wrap="off"></textarea>
         </div>
       </div>
-      <button id="compareBtn" class="toolbar-btn primary" style="margin: 12px 16px;">
+      <button id="compareBtn" class="toolbar-btn primary compare-action">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="20" x2="18" y2="10"/>
           <line x1="12" y1="20" x2="12" y2="4"/>
@@ -176,11 +186,11 @@
         </svg>
         对比结构差异
       </button>
-      <div class="panel" style="margin: 0 16px;">
+      <div class="panel compare-result-panel">
         <div class="panel-header">
           <span class="panel-title">📊 对比结果</span>
         </div>
-        <pre id="compareOutput" class="code-area output"></pre>
+        <div id="compareOutput" class="code-area output compare-output"></div>
       </div>
     </div>
 

@@ -24,6 +24,7 @@ const elements = {
   themeBtn: $('themeBtn'),
   historyBtn: $('historyBtn'),
   compareBtn: $('compareBtn'),
+  compareSwapBtn: $('compareSwapBtn'),
   clearHistoryBtn: $('clearHistoryBtn'),
 
   // 面板
@@ -64,10 +65,18 @@ const elements = {
 let structureResult = null
 let currentTab = 'extract'
 let historyCache = null
+let compareRenderCache = null
+const compareInputCache = {
+  A: { value: '', compressed: false },
+  B: { value: '', compressed: false }
+}
 const HISTORY_KEY = 'history'
 const THEME_KEY = 'theme'
 const OPTIONS_KEY = 'options'
 const MAX_HISTORY = 15 // 减少历史记录数量以提升性能
+const COMPARE_RENDER_BATCH_SIZE = 300
+const COMPARE_INPUT_LIGHT_MODE_CHARS = 120000
+const COMPARE_INPUT_LIGHT_MODE_LINES = 2000
 
 // ==================== 存储工具函数 ====================
 
@@ -369,15 +378,14 @@ function highlightTypeScript(code) {
  * 对比两个 JSON 的结构差异
  */
 function compareStructures(a, b, path = '') {
-  const result = { same: [], added: [], removed: [] }
+  const result = { same: [], added: [], removed: [], changed: [] }
 
   const typeA = getType(a)
   const typeB = getType(b)
 
   // 类型不同
   if (typeA !== typeB) {
-    result.removed.push({ path: path || 'root', type: typeA })
-    result.added.push({ path: path || 'root', type: typeB })
+    result.changed.push({ path: path || 'root', typeA, typeB, valueA: a, valueB: b })
     return result
   }
 
@@ -391,18 +399,19 @@ function compareStructures(a, b, path = '') {
       const newPath = path ? `${path}.${key}` : key
       
       if (!(key in a)) {
-        result.added.push({ path: newPath, type: getType(b[key]) })
+        result.added.push({ path: newPath, type: getType(b[key]), value: b[key], side: 'B' })
       } else if (!(key in b)) {
-        result.removed.push({ path: newPath, type: getType(a[key]) })
+        result.removed.push({ path: newPath, type: getType(a[key]), value: a[key], side: 'A' })
       } else {
         const sub = compareStructures(a[key], b[key], newPath)
         result.same.push(...sub.same)
         result.added.push(...sub.added)
         result.removed.push(...sub.removed)
+        result.changed.push(...sub.changed)
       }
     }
 
-    if (result.added.length === 0 && result.removed.length === 0 && keysA.length > 0) {
+    if (result.added.length === 0 && result.removed.length === 0 && result.changed.length === 0 && keysA.length > 0) {
       result.same.push({ path: path || 'root', type: 'object' })
     }
   }
@@ -415,12 +424,13 @@ function compareStructures(a, b, path = '') {
         if (objItems.length === 0) return arr[0]
         return Object.assign({}, ...objItems)
       }
-      const sub = compareStructures(mergeItems(a), mergeItems(b), path + '[]')
+      const sub = compareStructures(mergeItems(a), mergeItems(b), path ? `${path}[]` : 'root[]')
       result.same.push(...sub.same)
       result.added.push(...sub.added)
       result.removed.push(...sub.removed)
+      result.changed.push(...sub.changed)
     }
-    if (result.added.length === 0 && result.removed.length === 0) {
+    if (result.added.length === 0 && result.removed.length === 0 && result.changed.length === 0) {
       result.same.push({ path: path || 'root', type: 'array' })
     }
   }
@@ -442,34 +452,308 @@ function getType(value) {
 }
 
 /**
+ * 格式化对比值
+ */
+function formatCompareValue(value) {
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'string') return value
+
+  try {
+    const jsonValue = JSON.stringify(value)
+    return jsonValue === undefined ? String(value) : jsonValue
+  } catch (e) {
+    return String(value)
+  }
+}
+
+/**
+ * 拼接嵌套字段路径
+ */
+function joinComparePath(path, key, isArrayItem = false) {
+  if (isArrayItem) return `${path}[${key}]`
+  return path ? `${path}.${key}` : key
+}
+
+/**
+ * 展开对象或数组值，便于直接展示字段和值
+ */
+function flattenCompareEntries(path, value) {
+  const valueType = getType(value)
+
+  if (valueType === 'object') {
+    const keys = Object.keys(value || {})
+    if (keys.length === 0) return [{ path, value }]
+
+    return keys.flatMap(key => flattenCompareEntries(joinComparePath(path, key), value[key]))
+  }
+
+  if (valueType === 'array') {
+    if (value.length === 0) return [{ path, value }]
+
+    const isPrimitiveArray = value.every(item => item === null || typeof item !== 'object')
+    if (isPrimitiveArray) return [{ path, value }]
+
+    return value.flatMap((item, index) => flattenCompareEntries(joinComparePath(path, index, true), item))
+  }
+
+  return [{ path, value }]
+}
+
+/**
+ * 获取对比输入框元素
+ */
+function getCompareInputElement(side) {
+  return side === 'A' ? elements.compareInputA : elements.compareInputB
+}
+
+/**
+ * 统计文本行数，避免 split 生成大数组
+ */
+function countTextLines(text) {
+  if (!text) return 0
+
+  let lineCount = 1
+  for (let index = 0; index < text.length; index++) {
+    if (text.charCodeAt(index) === 10) lineCount++
+  }
+  return lineCount
+}
+
+/**
+ * 格式化文本大小
+ */
+function formatTextSize(text) {
+  const kbSize = Math.max(1, Math.round(text.length / 1024))
+  return `${kbSize} KB`
+}
+
+/**
+ * 获取对比输入框真实内容
+ */
+function getCompareInputValue(side) {
+  const state = compareInputCache[side]
+  return state.compressed ? state.value : getCompareInputElement(side).value
+}
+
+/**
+ * 设置对比输入框真实内容
+ */
+function setCompareInputValue(side, value) {
+  const element = getCompareInputElement(side)
+  const state = compareInputCache[side]
+  state.value = value
+  state.compressed = false
+  element.readOnly = false
+  element.classList.remove('compare-input-cached')
+  element.value = value
+}
+
+/**
+ * 判断是否需要启用轻量模式
+ */
+function shouldCompressCompareInput(text, lineCount) {
+  return text.length >= COMPARE_INPUT_LIGHT_MODE_CHARS || lineCount >= COMPARE_INPUT_LIGHT_MODE_LINES
+}
+
+/**
+ * 格式化轻量模式提示
+ */
+function formatCompareInputPlaceholder(side, text, lineCount) {
+  const sideLabel = side === 'A' ? 'JSON A（左侧）' : 'JSON B（右侧）'
+  return `${sideLabel} 已缓存：${lineCount} 行 / ${formatTextSize(text)}。点击恢复编辑，仍可直接对比。`
+}
+
+/**
+ * 压缩大 JSON 输入框，减少页签切换布局压力
+ */
+function compressCompareInput(side) {
+  const element = getCompareInputElement(side)
+  const state = compareInputCache[side]
+  const text = state.compressed ? state.value : element.value
+  const lineCount = countTextLines(text)
+
+  if (!shouldCompressCompareInput(text, lineCount)) return
+
+  state.value = text
+  state.compressed = true
+  element.value = formatCompareInputPlaceholder(side, text, lineCount)
+  element.readOnly = true
+  element.classList.add('compare-input-cached')
+}
+
+/**
+ * 恢复轻量模式下的真实 JSON 内容
+ */
+function restoreCompareInput(side) {
+  const element = getCompareInputElement(side)
+  const state = compareInputCache[side]
+
+  if (!state.compressed) return
+
+  element.value = state.value
+  element.readOnly = false
+  element.classList.remove('compare-input-cached')
+  state.compressed = false
+}
+
+/**
+ * 压缩左右两侧大 JSON 输入
+ */
+function compressCompareInputs() {
+  compressCompareInput('A')
+  compressCompareInput('B')
+}
+
+/**
+ * 格式化差异行值
+ */
+function formatCompareLine(path, value) {
+  return `
+    <div class="diff-line-row">
+      <span class="diff-field-name">${escapeHtml(path)}</span>
+      <span class="diff-separator">:</span>
+      <span class="diff-inline-value">${escapeHtml(formatCompareValue(value))}</span>
+    </div>
+  `
+}
+
+/**
+ * 格式化类型变化差异行
+ */
+function formatChangedCompareLine(item) {
+  return `
+    <div class="diff-line-row diff-changed-row">
+      <span class="diff-field-name">${escapeHtml(item.path)}</span>
+      <span class="diff-separator">:</span>
+      <span class="diff-inline-value diff-old-value">${escapeHtml(formatCompareValue(item.valueA))}</span>
+      <span class="diff-arrow">→</span>
+      <span class="diff-inline-value diff-new-value">${escapeHtml(formatCompareValue(item.valueB))}</span>
+    </div>
+  `
+}
+
+/**
+ * 格式化单条新增或缺失差异
+ */
+function formatCompareItem(item) {
+  return formatCompareLine(item.path, item.value)
+}
+
+/**
+ * 展开新增或删除差异项
+ */
+function flattenCompareItems(items) {
+  return items.flatMap(item => flattenCompareEntries(item.path || item.field, item.value))
+}
+
+/**
+ * 格式化类型变化差异
+ */
+function formatChangedCompareItem(item) {
+  return formatChangedCompareLine(item)
+}
+
+/**
+ * 获取当前分类的渲染函数
+ */
+function getCompareItemFormatter(variant) {
+  return variant === 'changed' ? formatChangedCompareItem : formatCompareItem
+}
+
+/**
+ * 格式化一批差异行
+ */
+function formatCompareRows(variant, items, startIndex, endIndex) {
+  const formatter = getCompareItemFormatter(variant)
+  return items.slice(startIndex, endIndex).map(formatter).join('')
+}
+
+/**
+ * 格式化加载更多按钮
+ */
+function formatCompareLoadMore(variant, nextIndex, total) {
+  if (nextIndex >= total) return ''
+
+  return `
+    <button type="button" class="diff-load-more" data-variant="${escapeHtml(variant)}" data-next-index="${nextIndex}">
+      显示更多（剩余 ${total - nextIndex} 条）
+    </button>
+  `
+}
+
+/**
+ * 准备对比结果渲染缓存
+ */
+function createCompareRenderData(result) {
+  return {
+    added: flattenCompareItems(result.added),
+    removed: flattenCompareItems(result.removed),
+    changed: result.changed || []
+  }
+}
+
+/**
+ * 格式化差异区域
+ */
+function formatCompareSection(variant, title, items) {
+  if (items.length === 0) return ''
+  const renderCount = Math.min(items.length, COMPARE_RENDER_BATCH_SIZE)
+  const sectionContent = formatCompareRows(variant, items, 0, renderCount)
+  const loadMore = formatCompareLoadMore(variant, renderCount, items.length)
+
+  return `
+    <details class="diff-section diff-section-${variant}" open>
+      <summary class="diff-section-title diff-text-${variant}">
+        <span class="diff-toggle-icon"></span>
+        <span>${escapeHtml(title)}</span>
+        <span class="diff-section-count">${items.length}</span>
+      </summary>
+      <div class="diff-section-content">
+        ${sectionContent}
+        ${loadMore}
+      </div>
+    </details>
+  `
+}
+
+/**
  * 格式化对比结果
  */
 function formatCompareResult(result) {
-  let output = ''
+  compareRenderCache = createCompareRenderData(result)
+  const addedCount = compareRenderCache.added.length
+  const removedCount = compareRenderCache.removed.length
+  const changedCount = compareRenderCache.changed.length
+  const diffCount = addedCount + removedCount + changedCount
 
-  if (result.added.length > 0) {
-    output += '<span class="diff-add">+ 新增字段：</span>\n'
-    result.added.forEach(item => {
-      output += `<span class="diff-add">  + ${item.path}: ${item.type}</span>\n`
-    })
-    output += '\n'
+  const summary = `
+    <div class="diff-summary">
+      <div class="diff-baseline">基准：左侧 JSON → 对比：右侧 JSON</div>
+      <div class="diff-counts">
+        <span class="diff-count-add" title="新增字段">新增 ${addedCount}</span>
+        <span class="diff-count-remove" title="删除字段">删除 ${removedCount}</span>
+        <span class="diff-count-change" title="类型变化">变更 ${changedCount}</span>
+      </div>
+    </div>
+  `
+
+  if (diffCount === 0) {
+    return `
+      <div class="diff-result-container">
+        ${summary}
+        <div class="diff-empty">两个 JSON 结构完全一致</div>
+      </div>
+    `
   }
 
-  if (result.removed.length > 0) {
-    output += '<span class="diff-remove">- 移除字段：</span>\n'
-    result.removed.forEach(item => {
-      output += `<span class="diff-remove">  - ${item.path}: ${item.type}</span>\n`
-    })
-    output += '\n'
-  }
-
-  if (result.added.length === 0 && result.removed.length === 0) {
-    output = '<span class="diff-same">✓ 两个 JSON 的结构完全相同</span>'
-  } else {
-    output += `<span class="diff-same">相同字段: ${result.same.length} 个</span>`
-  }
-
-  return output
+  return `
+    <div class="diff-result-container">
+      ${summary}
+      ${formatCompareSection('changed', '变更', compareRenderCache.changed)}
+      ${formatCompareSection('added', '新增', compareRenderCache.added)}
+      ${formatCompareSection('removed', '删除', compareRenderCache.removed)}
+    </div>
+  `
 }
 
 // ==================== 格式化输出 ====================
@@ -661,10 +945,20 @@ function loadHistoryItem(id) {
  * 切换主题
  */
 async function toggleTheme() {
-  const current = elements.app.dataset.theme
+  const current = document.documentElement.dataset.theme || elements.app.dataset.theme || 'light'
   const next = current === 'dark' ? 'light' : 'dark'
-  elements.app.dataset.theme = next
+  applyTheme(next)
   await saveStorage(THEME_KEY, next)
+}
+
+/**
+ * 应用主题
+ */
+function applyTheme(theme) {
+  const nextTheme = theme === 'dark' ? 'dark' : 'light'
+  document.documentElement.dataset.theme = nextTheme
+  document.body.dataset.theme = nextTheme
+  elements.app.dataset.theme = nextTheme
 }
 
 /**
@@ -672,7 +966,7 @@ async function toggleTheme() {
  */
 async function initTheme() {
   const saved = await loadStorage(THEME_KEY, 'light')
-  elements.app.dataset.theme = saved
+  applyTheme(saved)
 }
 
 /**
@@ -965,6 +1259,12 @@ function renderUrlParams(params) {
  * 切换选项卡
  */
 function switchTab(tabName) {
+  if (currentTab === tabName) return
+
+  if (currentTab === 'compare' && tabName !== 'compare') {
+    compressCompareInputs()
+  }
+
   currentTab = tabName
   
   // 更新选项卡激活状态
@@ -1019,7 +1319,7 @@ elements.extractBtn.addEventListener('click', () => {
     saveToHistory(inputText, outputText)
     showToast('提取成功！')
   } catch (e) {
-    elements.output.innerHTML = `<span style="color: #ef4444;">JSON 解析错误：${escapeHtml(e.message)}</span>`
+    elements.output.innerHTML = `<span class="output-error">JSON 解析错误：${escapeHtml(e.message)}</span>`
     showToast('JSON 格式错误', 'error')
     updateStatus('错误')
     structureResult = null
@@ -1096,9 +1396,10 @@ elements.clearBtn.addEventListener('click', () => {
     elements.outputStats.textContent = ''
     structureResult = null
   } else if (currentTab === 'compare') {
-    elements.compareInputA.value = ''
-    elements.compareInputB.value = ''
+    setCompareInputValue('A', '')
+    setCompareInputValue('B', '')
     elements.compareOutput.innerHTML = ''
+    compareRenderCache = null
   } else if (currentTab === 'urlParams') {
     elements.urlInput.value = ''
     elements.urlParamsResult.innerHTML = '<div class="url-params-placeholder">请输入 URL 后点击「解析」</div>'
@@ -1296,8 +1597,8 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 // 对比按钮
 elements.compareBtn.addEventListener('click', () => {
-  const textA = elements.compareInputA.value.trim()
-  const textB = elements.compareInputB.value.trim()
+  const textA = getCompareInputValue('A').trim()
+  const textB = getCompareInputValue('B').trim()
 
   if (!textA || !textB) {
     showToast('请输入两个 JSON 进行对比', 'error')
@@ -1309,12 +1610,56 @@ elements.compareBtn.addEventListener('click', () => {
     const jsonB = JSON.parse(textB)
     const result = compareStructures(jsonA, jsonB)
     elements.compareOutput.innerHTML = formatCompareResult(result)
+    compressCompareInputs()
     showToast('对比完成！')
   } catch (e) {
-    elements.compareOutput.innerHTML = `<span style="color: #ef4444;">JSON 解析错误：${escapeHtml(e.message)}</span>`
+    compareRenderCache = null
+    elements.compareOutput.innerHTML = `<div class="diff-error">JSON 解析错误：${escapeHtml(e.message)}</div>`
     showToast('JSON 格式错误', 'error')
   }
 })
+
+// 互换左右 JSON
+elements.compareSwapBtn.addEventListener('click', () => {
+  const textA = getCompareInputValue('A')
+  const textB = getCompareInputValue('B')
+  setCompareInputValue('A', textB)
+  setCompareInputValue('B', textA)
+  compressCompareInputs()
+
+  if (getCompareInputValue('A').trim() && getCompareInputValue('B').trim()) {
+    elements.compareBtn.click()
+    return
+  }
+
+  compareRenderCache = null
+  elements.compareOutput.innerHTML = ''
+  showToast('已互换左右 JSON')
+})
+
+// 分批加载对比结果
+elements.compareOutput.addEventListener('click', (e) => {
+  const loadMoreBtn = e.target.closest('.diff-load-more')
+  if (!loadMoreBtn || !compareRenderCache) return
+
+  const variant = loadMoreBtn.dataset.variant
+  const items = compareRenderCache[variant] || []
+  const startIndex = Number(loadMoreBtn.dataset.nextIndex) || 0
+  const endIndex = Math.min(startIndex + COMPARE_RENDER_BATCH_SIZE, items.length)
+
+  loadMoreBtn.insertAdjacentHTML('beforebegin', formatCompareRows(variant, items, startIndex, endIndex))
+
+  if (endIndex >= items.length) {
+    loadMoreBtn.remove()
+    return
+  }
+
+  loadMoreBtn.dataset.nextIndex = String(endIndex)
+  loadMoreBtn.textContent = `显示更多（剩余 ${items.length - endIndex} 条）`
+})
+
+elements.compareInputA.addEventListener('focus', () => restoreCompareInput('A'))
+elements.compareInputB.addEventListener('focus', () => restoreCompareInput('B'))
 
 // 快捷键
 document.addEventListener('keydown', (e) => {
