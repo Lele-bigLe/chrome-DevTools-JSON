@@ -38,6 +38,13 @@
 - 原生 JavaScript（无框架、无构建工具）
 - CSS Variables 双主题
 
+🔗 友情链接
+LINUX DO
+
+中文开发者与技术爱好者社区，聚焦 AI、编程、开源项目、效率工具及技术分享。
+
+官网：https://linux.do/
+
 ## License
 
 MIT
